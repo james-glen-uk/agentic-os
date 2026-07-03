@@ -111,6 +111,7 @@ class BrainUpdate(BaseModel):
 class SkillRunRequest(BaseModel):
     input: Optional[str] = ""
     agent: Optional[str] = "auto"
+    topic: Optional[str] = ""
 
 class ScheduleJobRequest(BaseModel):
     name: str
@@ -462,6 +463,20 @@ def run_skill(name: str, req: Optional[SkillRunRequest] = None):
     )
     write_file(path / "learnings.md", existing + new_entry)
 
+    # Persist full output to the artifact library (system of record)
+    artifact_id = None
+    if run_result["agent"]:
+        try:
+            topic = (req.topic if req else "") or ""
+            artifact = save_artifact(
+                skill=name, agent=agent_used, content=response_text,
+                title=f"{name}: {topic}" if topic else "",
+                source_topic=topic,
+            )
+            artifact_id = artifact["id"]
+        except Exception:
+            log.warning("Failed to save artifact for skill run %s", run_id, exc_info=True)
+
     # Log execution
     append_audit({
         "action": "skill_run",
@@ -470,6 +485,7 @@ def run_skill(name: str, req: Optional[SkillRunRequest] = None):
         "requested": agent_choice,
         "fallback_used": run_result["fallback_used"],
         "run_id": run_id,
+        "artifact_id": artifact_id,
         "output_preview": response_text[:100],
     })
 
@@ -481,6 +497,7 @@ def run_skill(name: str, req: Optional[SkillRunRequest] = None):
         "requested_agent": agent_choice,
         "attempts": run_result["attempts"],
         "fallback_used": run_result["fallback_used"],
+        "artifact_id": artifact_id,
         "output": response_text,
         "message": f"Skill '{name}' {'completed via ' + agent_used if run_result['agent'] else 'failed on all agents'}",
     }
@@ -1043,6 +1060,114 @@ def execute_agent(agent: str, message: str) -> str:
         return f"⚠ Agent '{agent}' CLI not installed. Install it and try again."
     except Exception as e:
         return f"⚠ Error communicating with {agent}: {str(e)}"
+
+# ─── Artifact Library ─────────────────────────────────────────────
+# Every successful skill run persists its full output here — the
+# system of record, replacing the lossy 500-char learnings preview.
+
+ARTIFACTS_DIR = BASE_DIR / "data" / "artifacts"
+_ARTIFACT_ID_RE = re.compile(r"^[0-9a-f]{8}$")
+
+class ArtifactUpdate(BaseModel):
+    title: Optional[str] = None
+    tags: Optional[list] = None
+    bookmarked: Optional[bool] = None
+
+def save_artifact(skill: str, agent: str, content: str, title: str = "",
+                  artifact_type: str = "markdown", source_topic: str = "",
+                  tags: Optional[list] = None) -> dict:
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    art_id = str(uuid.uuid4())[:8]
+    ext = {"markdown": "md", "text": "txt"}.get(artifact_type, "txt")
+    content_file = f"{art_id}.{ext}"
+    (ARTIFACTS_DIR / content_file).write_text(content, encoding="utf-8")
+    meta = {
+        "id": art_id,
+        "title": title or f"{skill} — {get_timestamp()[:10]}",
+        "skill": skill,
+        "agent": agent,
+        "type": artifact_type,
+        "tags": tags or [],
+        "bookmarked": False,
+        "source_topic": source_topic,
+        "content_file": content_file,
+        "created": get_timestamp(),
+        "size": len(content),
+    }
+    (ARTIFACTS_DIR / f"{art_id}.meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    try:
+        from brain.memory_search import index_text
+        index_text("artifact", f"data/artifacts/{content_file}", meta["title"], content, "artifact")
+    except Exception:
+        log.debug("artifact FTS indexing unavailable", exc_info=True)
+    return meta
+
+def _artifact_meta_path(art_id: str) -> Path:
+    if not _ARTIFACT_ID_RE.match(art_id or ""):
+        raise HTTPException(400, "Invalid artifact id")
+    p = ARTIFACTS_DIR / f"{art_id}.meta.json"
+    if not p.exists():
+        raise HTTPException(404, "Artifact not found")
+    return p
+
+def _artifact_content(meta: dict) -> str:
+    f = ARTIFACTS_DIR / meta.get("content_file", "")
+    return f.read_text(encoding="utf-8", errors="replace") if f.is_file() else ""
+
+@app.get("/api/artifacts")
+def list_artifacts(skill: str = "", tag: str = "", bookmarked: Optional[bool] = None,
+                   q: str = "", limit: int = Query(50, le=200)):
+    if not ARTIFACTS_DIR.exists():
+        return {"artifacts": [], "total": 0}
+    items = []
+    for meta_file in sorted(ARTIFACTS_DIR.glob("*.meta.json"), reverse=True):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if skill and meta.get("skill") != skill:
+            continue
+        if tag and tag not in meta.get("tags", []):
+            continue
+        if bookmarked is not None and bool(meta.get("bookmarked")) != bookmarked:
+            continue
+        content = _artifact_content(meta)
+        if q and q.lower() not in (meta.get("title", "") + " " + content).lower():
+            continue
+        meta["preview"] = content[:200]
+        items.append(meta)
+        if len(items) >= limit:
+            break
+    return {"artifacts": items, "total": len(items)}
+
+@app.get("/api/artifacts/{art_id}")
+def get_artifact(art_id: str):
+    meta = json.loads(_artifact_meta_path(art_id).read_text(encoding="utf-8"))
+    meta["content"] = _artifact_content(meta)
+    return meta
+
+@app.patch("/api/artifacts/{art_id}")
+def update_artifact(art_id: str, data: ArtifactUpdate):
+    p = _artifact_meta_path(art_id)
+    meta = json.loads(p.read_text(encoding="utf-8"))
+    for field in ("title", "tags", "bookmarked"):
+        val = getattr(data, field)
+        if val is not None:
+            meta[field] = val
+    p.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    append_audit({"action": "artifact_updated", "id": art_id})
+    return meta
+
+@app.delete("/api/artifacts/{art_id}")
+def delete_artifact(art_id: str):
+    p = _artifact_meta_path(art_id)
+    meta = json.loads(p.read_text(encoding="utf-8"))
+    content_file = ARTIFACTS_DIR / meta.get("content_file", "")
+    if content_file.is_file():
+        content_file.unlink()
+    p.unlink()
+    append_audit({"action": "artifact_deleted", "id": art_id})
+    return {"status": "deleted", "id": art_id}
 
 # ─── Fallback Chain Engine ────────────────────────────────────────
 # execute_agent() reports failures as human-readable strings (v0.3.0

@@ -65,7 +65,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
 
 ## Phase 2 — Content Engine (PRD Epic D) `P0`
 
-- [ ] **2.1 Artifact Library backend** *(D3)* — *first: everything else saves into it*
+- [x] **2.1 Artifact Library backend** *(D3)* — *first: everything else saves into it*
   Files: `server.py` (new `/api/artifacts` GET/PATCH/DELETE + auto-save hook in `/api/skills/{name}/run`), new `data/artifacts/` layout (content file + `meta.json`), `brain/memory_search.py` (index artifacts into FTS5)
   **Done when:** every skill run persists full output as an artifact; list/filter/search/bookmark/tag/delete endpoints tested.
 

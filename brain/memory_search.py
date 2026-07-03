@@ -108,6 +108,21 @@ def index_journal():
             content = f.read_text(encoding="utf-8")
             index_text("journal", str(f.relative_to(BASE_DIR.parent)), f"Journal {f.stem}", content, "journal")
 
+def index_artifacts():
+    artifacts_dir = ROOT_DIR / "data" / "artifacts"
+    if not artifacts_dir.exists():
+        return
+    for meta_file in sorted(artifacts_dir.glob("*.meta.json")):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            content_file = artifacts_dir / meta.get("content_file", "")
+            if content_file.is_file():
+                content = content_file.read_text(encoding="utf-8", errors="replace")
+                index_text("artifact", str(content_file.relative_to(ROOT_DIR)),
+                           meta.get("title", meta_file.stem), content, "artifact")
+        except Exception:
+            continue
+
 def reindex_all():
     conn = _get_db()
     conn.executescript("DELETE FROM memory_fts; DELETE FROM memory_meta;")
@@ -115,6 +130,7 @@ def reindex_all():
     index_brain_files()
     index_skills()
     index_journal()
+    index_artifacts()
 
 def extract_entities(text: str) -> list:
     entities = []
