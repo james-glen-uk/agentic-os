@@ -26,7 +26,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   `install.ps1`: `py -3.11` detection, `pip install -r requirements.txt`, create `backups/ audit/`, detect opencode/hermes/gemini/claude CLIs with install hints. `start.ps1`: read port from `data/settings.json`, launch with UTF-8 env. `install.sh`: handle `MINGW*|MSYS*` by pointing to `install.ps1` instead of `exit 1`. README gets a Windows Quick Start.
   **Done when:** fresh clone on Windows: `./install.ps1; ./start.ps1` → dashboard up.
 
-- [ ] **0.4 Platform-aware agent paths** *(A3)*
+- [x] **0.4 Platform-aware agent paths** *(A3)*
   Files: `server.py` (new `platform_paths` helper + all `Path.home()/...` call sites: opencode sessions `~/.local/share/opencode`, hermes `~/.hermes/.env`, gemini `~/.gemini/oauth_creds.json`)
   Resolve per-OS equivalents (`%LOCALAPPDATA%`/`%USERPROFILE%` on Windows); single helper, no scattered conditionals.
   **Done when:** `/api/status` and `/api/agents/health` report real availability on Windows; unit test covers path resolution per platform (monkeypatched).

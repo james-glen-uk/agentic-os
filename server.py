@@ -45,8 +45,36 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Agentic OS", version="1.1.0", lifespan=lifespan)
 
+# ─── Platform-aware agent CLI locations ──────────────────────────
+
+def agent_data_dir(agent: str) -> Path:
+    """Resolve an agent CLI's data directory across platforms.
+
+    Returns the first existing candidate, else the platform default,
+    so callers can still show a sensible path when the CLI is absent.
+    """
+    home = Path.home()
+    if agent == "opencode":
+        candidates = []
+        xdg = os.environ.get("XDG_DATA_HOME")
+        if xdg:
+            candidates.append(Path(xdg) / "opencode")
+        if os.name == "nt":
+            local = os.environ.get("LOCALAPPDATA")
+            if local:
+                candidates.append(Path(local) / "opencode")
+        candidates.append(home / ".local" / "share" / "opencode")
+    elif agent in ("hermes", "gemini"):
+        candidates = [home / f".{agent}"]
+    else:
+        candidates = [home / f".{agent}"]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[-1]
+
 # Load OpenRouter API key from Hermes .env
-HERMES_ENV = Path.home() / ".hermes" / ".env"
+HERMES_ENV = agent_data_dir("hermes") / ".env"
 if HERMES_ENV.exists():
     for line in HERMES_ENV.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
@@ -187,7 +215,7 @@ def check_agent(name: str) -> dict:
             status = "online" if exists else "offline"
         elif name == "gemini":
             # Gemini has valid OAuth tokens logged in
-            oauth = Path.home() / ".gemini" / "oauth_creds.json"
+            oauth = agent_data_dir("gemini") / "oauth_creds.json"
             exists = shutil.which("gemini") is not None
             logged_in = oauth.exists() and "ya29" in oauth.read_text(encoding="utf-8", errors="replace")
             status = "online" if exists and logged_in else "offline" if not exists else "warning"
@@ -1467,7 +1495,7 @@ def get_trend_analytics():
 def list_sessions():
     try:
         sessions = []
-        sessions_dir = Path.home() / ".local" / "share" / "opencode"
+        sessions_dir = agent_data_dir("opencode")
         log_dir = sessions_dir / "log"
         if log_dir.exists():
             for f in sorted(log_dir.glob("*.log"), reverse=True)[:20]:
@@ -1478,7 +1506,7 @@ def list_sessions():
                     "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
                     "source": "opencode",
                 })
-        hermes_sessions = Path.home() / ".hermes" / "sessions.json"
+        hermes_sessions = agent_data_dir("hermes") / "sessions.json"
         if hermes_sessions.exists():
             sessions.append({
                 "id": "hermes-sessions",
@@ -1498,7 +1526,7 @@ def get_session_replay(session_id: str):
     if ".." in session_id or "/" in session_id:
         raise HTTPException(400, "Invalid session ID")
     try:
-        sessions_dir = Path.home() / ".local" / "share" / "opencode"
+        sessions_dir = agent_data_dir("opencode")
         log_file = sessions_dir / "log" / f"{session_id}.log"
         if log_file.exists():
             content = log_file.read_text(encoding="utf-8", errors="replace")
