@@ -51,6 +51,10 @@ app = FastAPI(title="Agentic OS", version="1.1.0", lifespan=lifespan)
 
 # ─── Platform-aware agent CLI locations ──────────────────────────
 
+# Module-level so tests can patch it without touching global os.name
+# (patching os.name breaks pathlib flavour selection cross-platform)
+_IS_WINDOWS = os.name == "nt"
+
 def agent_data_dir(agent: str) -> Path:
     """Resolve an agent CLI's data directory across platforms.
 
@@ -63,7 +67,7 @@ def agent_data_dir(agent: str) -> Path:
         xdg = os.environ.get("XDG_DATA_HOME")
         if xdg:
             candidates.append(Path(xdg) / "opencode")
-        if os.name == "nt":
+        if _IS_WINDOWS:
             local = os.environ.get("LOCALAPPDATA")
             if local:
                 candidates.append(Path(local) / "opencode")
