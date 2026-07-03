@@ -43,22 +43,22 @@ def emit_event(event: dict):
 def _save_history(event: dict):
     history = []
     if HISTORY_FILE.exists():
-        history = json.loads(HISTORY_FILE.read_text())
+        history = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
     history.append(event)
     if len(history) > 1000:
         history = history[-1000:]
-    HISTORY_FILE.write_text(json.dumps(history, indent=2))
+    HISTORY_FILE.write_text(json.dumps(history, indent=2), encoding="utf-8")
 
 def get_history(limit: int = 100) -> list:
     if not HISTORY_FILE.exists():
         return []
-    history = json.loads(HISTORY_FILE.read_text())
+    history = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
     return history[-limit:]
 
 def load_job_definitions() -> list:
     jobs = []
     for f in sorted(JOBS_DIR.glob("*.json")):
-        data = json.loads(f.read_text())
+        data = json.loads(f.read_text(encoding="utf-8"))
         data["_file"] = str(f)
         jobs.append(data)
     return jobs
@@ -85,7 +85,7 @@ def run_skill(skill_name: str, trigger: str = "scheduler", input_text: str = "")
         "trigger": trigger,
         "timestamp": timestamp,
     }
-    with open(audit_file, "a") as f:
+    with open(audit_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
     emit_event({
         "type": "skill_run",

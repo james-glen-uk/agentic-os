@@ -48,7 +48,7 @@ app = FastAPI(title="Agentic OS", version="1.1.0", lifespan=lifespan)
 # Load OpenRouter API key from Hermes .env
 HERMES_ENV = Path.home() / ".hermes" / ".env"
 if HERMES_ENV.exists():
-    for line in HERMES_ENV.read_text().splitlines():
+    for line in HERMES_ENV.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
@@ -114,7 +114,7 @@ def append_audit(entry: dict):
     audit_file = BASE_DIR / "audit" / "audit.log"
     entry["timestamp"] = get_timestamp()
     entry["id"] = str(uuid.uuid4())[:8]
-    with open(audit_file, "a") as f:
+    with open(audit_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
 
 def safe_resolve(base: Path, user_path: str) -> Path:
@@ -188,7 +188,7 @@ def check_agent(name: str) -> dict:
             # Gemini has valid OAuth tokens logged in
             oauth = Path.home() / ".gemini" / "oauth_creds.json"
             exists = shutil.which("gemini") is not None
-            logged_in = oauth.exists() and "ya29" in oauth.read_text()
+            logged_in = oauth.exists() and "ya29" in oauth.read_text(encoding="utf-8", errors="replace")
             status = "online" if exists and logged_in else "offline" if not exists else "warning"
         else:
             status = "offline"
@@ -253,11 +253,11 @@ def list_skills():
             eval_data = {}
             eval_path = d / "eval.json"
             if eval_path.exists():
-                eval_data = json.loads(eval_path.read_text())
+                eval_data = json.loads(eval_path.read_text(encoding="utf-8"))
             score_history = []
             score_path = d / "score-history.json"
             if score_path.exists():
-                score_history = json.loads(score_path.read_text())
+                score_history = json.loads(score_path.read_text(encoding="utf-8"))
             skills.append({
                 "name": d.name,
                 "description": skill_md[:200] if skill_md else "",
@@ -278,8 +278,8 @@ def get_skill(name: str):
         "name": name,
         "skill": read_file(path / "SKILL.md"),
         "learnings": read_file(path / "learnings.md"),
-        "eval": json.loads((path / "eval.json").read_text()) if (path / "eval.json").exists() else {},
-        "score_history": json.loads((path / "score-history.json").read_text()) if (path / "score-history.json").exists() else [],
+        "eval": json.loads((path / "eval.json").read_text(encoding="utf-8")) if (path / "eval.json").exists() else {},
+        "score_history": json.loads((path / "score-history.json").read_text(encoding="utf-8")) if (path / "score-history.json").exists() else [],
         "context": [f.name for f in (path / "context").iterdir()] if (path / "context").exists() else [],
     }
 
@@ -375,7 +375,7 @@ def get_skill_eval(name: str):
     path = BASE_DIR / "skills" / name / "score-history.json"
     if not path.exists():
         return {"scores": []}
-    return {"scores": json.loads(path.read_text())}
+    return {"scores": json.loads(path.read_text(encoding="utf-8"))}
 
 # ─── Routes: Scheduler ────────────────────────────────────────────
 
@@ -384,7 +384,7 @@ def list_jobs():
     jobs_dir = BASE_DIR / "scheduler" / "jobs"
     jobs = []
     for f in sorted(jobs_dir.glob("*.json")):
-        jobs.append(json.loads(f.read_text()))
+        jobs.append(json.loads(f.read_text(encoding="utf-8")))
     return jobs
 
 @app.post("/api/scheduler/jobs")
@@ -402,7 +402,7 @@ def create_job(job: ScheduleJobRequest):
         "next_run": None,
     }
     (jobs_dir / f"{job.name.replace(' ', '_')}.json").write_text(
-        json.dumps(job_data, indent=2)
+        json.dumps(job_data, indent=2), encoding="utf-8"
     )
     append_audit({"action": "job_created", "job": job.name})
     return job_data
@@ -411,7 +411,7 @@ def create_job(job: ScheduleJobRequest):
 def delete_job(job_id: str):
     jobs_dir = BASE_DIR / "scheduler" / "jobs"
     for f in jobs_dir.glob("*.json"):
-        data = json.loads(f.read_text())
+        data = json.loads(f.read_text(encoding="utf-8"))
         if data.get("id") == job_id:
             f.unlink()
             append_audit({"action": "job_deleted", "job_id": job_id})
@@ -425,7 +425,7 @@ def get_audit(limit: int = Query(100, le=500)):
     audit_file = BASE_DIR / "audit" / "audit.log"
     if not audit_file.exists():
         return {"entries": []}
-    lines = audit_file.read_text().strip().split("\n")
+    lines = audit_file.read_text(encoding="utf-8").strip().split("\n")
     entries = [json.loads(l) for l in lines if l.strip()]
     return {"entries": entries[-limit:]}
 
@@ -436,12 +436,12 @@ def get_cost():
     cost_file = BASE_DIR / "data" / "cost-history.json"
     if not cost_file.exists():
         return {"entries": [], "daily_totals": {}, "monthly_projection": 0, "free_tier_alerts": []}
-    return json.loads(cost_file.read_text())
+    return json.loads(cost_file.read_text(encoding="utf-8"))
 
 @app.post("/api/cost/record")
 def record_cost(data: dict):
     cost_file = BASE_DIR / "data" / "cost-history.json"
-    cost_data = json.loads(cost_file.read_text()) if cost_file.exists() else \
+    cost_data = json.loads(cost_file.read_text(encoding="utf-8")) if cost_file.exists() else \
         {"entries": [], "daily_totals": {}, "monthly_projection": 0, "free_tier_alerts": []}
     cost_data["entries"].append({
         "timestamp": get_timestamp(),
@@ -450,7 +450,7 @@ def record_cost(data: dict):
         "cost": data.get("cost", 0.0),
         "model": data.get("model", "unknown"),
     })
-    cost_file.write_text(json.dumps(cost_data, indent=2))
+    cost_file.write_text(json.dumps(cost_data, indent=2), encoding="utf-8")
     return {"status": "recorded"}
 
 # ─── Routes: Registry/Plugins ─────────────────────────────────────
@@ -460,7 +460,7 @@ def list_plugins():
     reg_file = BASE_DIR / "registry" / "plugins.json"
     if not reg_file.exists():
         return {"plugins": []}
-    return json.loads(reg_file.read_text())
+    return json.loads(reg_file.read_text(encoding="utf-8"))
 
 @app.post("/api/plugins/install")
 def install_plugin(data: dict):
@@ -468,7 +468,7 @@ def install_plugin(data: dict):
     if not name:
         raise HTTPException(400, "Plugin name required")
     reg_file = BASE_DIR / "registry" / "plugins.json"
-    reg = json.loads(reg_file.read_text()) if reg_file.exists() else {"plugins": []}
+    reg = json.loads(reg_file.read_text(encoding="utf-8")) if reg_file.exists() else {"plugins": []}
     if any(p["name"] == name for p in reg["plugins"]):
         return {"status": "already_installed"}
     reg["plugins"].append({
@@ -476,7 +476,7 @@ def install_plugin(data: dict):
         "installed": get_timestamp(),
         "version": "1.0.0",
     })
-    reg_file.write_text(json.dumps(reg, indent=2))
+    reg_file.write_text(json.dumps(reg, indent=2), encoding="utf-8")
     append_audit({"action": "plugin_installed", "plugin": name})
     return {"status": "installed", "plugin": name}
 
@@ -537,7 +537,7 @@ def get_settings():
     sf = BASE_DIR / "data" / "settings.json"
     if not sf.exists():
         return {}
-    data = json.loads(sf.read_text())
+    data = json.loads(sf.read_text(encoding="utf-8"))
     # Mask sensitive values
     if "api_keys" in data:
         data["api_keys"] = {k: v[:4] + "****" if len(v) > 8 else "****" for k, v in data["api_keys"].items()}
@@ -547,9 +547,9 @@ def get_settings():
 def update_settings(data: SettingsUpdate):
     sf = BASE_DIR / "data" / "settings.json"
     # Merge with existing
-    existing = json.loads(sf.read_text()) if sf.exists() else {}
+    existing = json.loads(sf.read_text(encoding="utf-8")) if sf.exists() else {}
     existing.update(data.settings)
-    sf.write_text(json.dumps(existing, indent=2))
+    sf.write_text(json.dumps(existing, indent=2), encoding="utf-8")
     append_audit({"action": "settings_updated"})
     return {"status": "ok"}
 
@@ -646,11 +646,11 @@ Generate this skill by running it with appropriate input.
 
 ## Primary: opencode
 """
-    (skill_dir / "SKILL.md").write_text(skill_md)
-    (skill_dir / "learnings.md").write_text(f"# {name}\n\nAuto-generated skill.\n")
+    (skill_dir / "SKILL.md").write_text(skill_md, encoding="utf-8")
+    (skill_dir / "learnings.md").write_text(f"# {name}\n\nAuto-generated skill.\n", encoding="utf-8")
     eval_data = {"criteria": ["completeness", "accuracy", "efficiency"], "weights": [0.4, 0.3, 0.3]}
-    (skill_dir / "eval.json").write_text(json.dumps(eval_data, indent=2))
-    (skill_dir / "score-history.json").write_text("[]")
+    (skill_dir / "eval.json").write_text(json.dumps(eval_data, indent=2), encoding="utf-8")
+    (skill_dir / "score-history.json").write_text("[]", encoding="utf-8")
     append_audit({"action": "skill_generated", "name": name, "description": description})
     return {"status": "created", "name": name, "skill": skill_md}
 
@@ -661,7 +661,7 @@ ERROR_LOG_FILE = BASE_DIR / "data" / "error-log.json"
 def log_error(source: str, message: str, category: str = "general", details: dict = None):
     errors = []
     if ERROR_LOG_FILE.exists():
-        errors = json.loads(ERROR_LOG_FILE.read_text())
+        errors = json.loads(ERROR_LOG_FILE.read_text(encoding="utf-8"))
     errors.append({
         "id": str(uuid.uuid4())[:8],
         "source": source,
@@ -672,13 +672,13 @@ def log_error(source: str, message: str, category: str = "general", details: dic
     })
     if len(errors) > 500:
         errors = errors[-500:]
-    ERROR_LOG_FILE.write_text(json.dumps(errors, indent=2))
+    ERROR_LOG_FILE.write_text(json.dumps(errors, indent=2), encoding="utf-8")
 
 @app.get("/api/errors")
 def get_errors(limit: int = Query(50, le=200), category: str = ""):
     if not ERROR_LOG_FILE.exists():
         return {"errors": []}
-    errors = json.loads(ERROR_LOG_FILE.read_text())
+    errors = json.loads(ERROR_LOG_FILE.read_text(encoding="utf-8"))
     if category:
         errors = [e for e in errors if e.get("category") == category]
     return {"errors": errors[-limit:]}
@@ -686,7 +686,7 @@ def get_errors(limit: int = Query(50, le=200), category: str = ""):
 @app.delete("/api/errors")
 def clear_errors():
     if ERROR_LOG_FILE.exists():
-        ERROR_LOG_FILE.write_text("[]")
+        ERROR_LOG_FILE.write_text("[]", encoding="utf-8")
     return {"status": "cleared"}
 
 @app.post("/api/errors/report")
@@ -705,11 +705,11 @@ CIRCUIT_BREAKER_FILE = BASE_DIR / "data" / "circuit-breaker.json"
 
 def _get_circuit_state() -> dict:
     if CIRCUIT_BREAKER_FILE.exists():
-        return json.loads(CIRCUIT_BREAKER_FILE.read_text())
+        return json.loads(CIRCUIT_BREAKER_FILE.read_text(encoding="utf-8"))
     return {"agents": {}, "threshold": 3, "recovery_timeout": 300}
 
 def _save_circuit_state(state: dict):
-    CIRCUIT_BREAKER_FILE.write_text(json.dumps(state, indent=2))
+    CIRCUIT_BREAKER_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 @app.get("/api/circuit-breaker")
 def get_circuit_breaker():
@@ -778,7 +778,7 @@ def load_chat_history():
     if not CHAT_HISTORY_FILE.exists():
         return {"messages": []}
     try:
-        data = json.loads(CHAT_HISTORY_FILE.read_text())
+        data = json.loads(CHAT_HISTORY_FILE.read_text(encoding="utf-8"))
         if isinstance(data, dict) and "messages" in data:
             return data
     except (json.JSONDecodeError, TypeError):
@@ -790,7 +790,7 @@ def save_chat_message(msg: dict):
     history.setdefault("messages", []).append(msg)
     if len(history["messages"]) > 200:
         history["messages"] = history["messages"][-200:]
-    CHAT_HISTORY_FILE.write_text(json.dumps(history, indent=2))
+    CHAT_HISTORY_FILE.write_text(json.dumps(history, indent=2), encoding="utf-8")
 
 def run_cli(args: list, timeout: int = 30) -> tuple:
     r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
@@ -1003,20 +1003,20 @@ def load_kanban_tasks():
     ensure_dir(KANBAN_DIR)
     tasks = []
     for f in sorted(KANBAN_DIR.glob("*.json")):
-        tasks.append(json.loads(f.read_text()))
+        tasks.append(json.loads(f.read_text(encoding="utf-8")))
     return tasks
 
 def save_kanban_task(task: dict):
     ensure_dir(KANBAN_DIR)
-    (KANBAN_DIR / f"{task['id']}.json").write_text(json.dumps(task, indent=2))
+    (KANBAN_DIR / f"{task['id']}.json").write_text(json.dumps(task, indent=2), encoding="utf-8")
 
 def load_goals():
     if GOALS_FILE.exists():
-        return json.loads(GOALS_FILE.read_text())
+        return json.loads(GOALS_FILE.read_text(encoding="utf-8"))
     return []
 
 def save_goals(goals: list):
-    GOALS_FILE.write_text(json.dumps(goals, indent=2))
+    GOALS_FILE.write_text(json.dumps(goals, indent=2), encoding="utf-8")
 
 # ─── Routes: Kanban Board (13 endpoints) ────────────────────────
 
@@ -1040,7 +1040,7 @@ def kanban_get_task(task_id: str):
     path = KANBAN_DIR / f"{task_id}.json"
     if not path.exists():
         raise HTTPException(404, "Task not found")
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 @app.post("/api/kanban/tasks")
 def kanban_create_task(data: KanbanTaskCreate):
@@ -1068,7 +1068,7 @@ def kanban_update_task(task_id: str, data: KanbanTaskUpdate):
     path = KANBAN_DIR / f"{task_id}.json"
     if not path.exists():
         raise HTTPException(404, "Task not found")
-    task = json.loads(path.read_text())
+    task = json.loads(path.read_text(encoding="utf-8"))
     for field in ["title", "body", "status", "priority", "assignee"]:
         val = getattr(data, field, None)
         if val is not None:
@@ -1083,7 +1083,7 @@ def kanban_complete_task(task_id: str, data: KanbanComplete):
     path = KANBAN_DIR / f"{task_id}.json"
     if not path.exists():
         raise HTTPException(404, "Task not found")
-    task = json.loads(path.read_text())
+    task = json.loads(path.read_text(encoding="utf-8"))
     task["status"] = "done"
     task["summary"] = data.summary
     task["completed_at"] = get_timestamp()
@@ -1097,7 +1097,7 @@ def kanban_block_task(task_id: str, data: KanbanBlock):
     path = KANBAN_DIR / f"{task_id}.json"
     if not path.exists():
         raise HTTPException(404, "Task not found")
-    task = json.loads(path.read_text())
+    task = json.loads(path.read_text(encoding="utf-8"))
     task["status"] = "blocked"
     task["block_reason"] = data.reason
     task["updated"] = get_timestamp()
@@ -1110,7 +1110,7 @@ def kanban_unblock_task(task_id: str):
     path = KANBAN_DIR / f"{task_id}.json"
     if not path.exists():
         raise HTTPException(404, "Task not found")
-    task = json.loads(path.read_text())
+    task = json.loads(path.read_text(encoding="utf-8"))
     task["status"] = "ready"
     task["block_reason"] = ""
     task["updated"] = get_timestamp()
@@ -1123,7 +1123,7 @@ def kanban_add_comment(task_id: str, data: KanbanCommentCreate):
     path = KANBAN_DIR / f"{task_id}.json"
     if not path.exists():
         raise HTTPException(404, "Task not found")
-    task = json.loads(path.read_text())
+    task = json.loads(path.read_text(encoding="utf-8"))
     comment = {
         "id": str(uuid.uuid4())[:8],
         "message": data.message,
@@ -1140,7 +1140,7 @@ def kanban_add_link(data: KanbanLinkCreate):
         path = KANBAN_DIR / f"{tid}.json"
         if not path.exists():
             raise HTTPException(404, f"Task {tid} not found")
-        t = json.loads(path.read_text())
+        t = json.loads(path.read_text(encoding="utf-8"))
         t.setdefault("links", [])
         link = {"parent": data.parent_id, "child": data.child_id}
         if link not in t["links"]:
@@ -1155,7 +1155,7 @@ def kanban_remove_link(parent_id: str = Query(...), child_id: str = Query(...)):
     for tid in [parent_id, child_id]:
         path = KANBAN_DIR / f"{tid}.json"
         if path.exists():
-            t = json.loads(path.read_text())
+            t = json.loads(path.read_text(encoding="utf-8"))
             t.setdefault("links", [])
             t["links"] = [l for l in t["links"] if not (l.get("parent") == parent_id and l.get("child") == child_id)]
             t["updated"] = get_timestamp()
@@ -1172,7 +1172,7 @@ def kanban_specify_task(task_id: str):
     path = KANBAN_DIR / f"{task_id}.json"
     if not path.exists():
         raise HTTPException(404, "Task not found")
-    task = json.loads(path.read_text())
+    task = json.loads(path.read_text(encoding="utf-8"))
     if task.get("status") == "triage":
         task["status"] = "todo"
         task["updated"] = get_timestamp()
@@ -1184,7 +1184,7 @@ def kanban_decompose_task(task_id: str):
     path = KANBAN_DIR / f"{task_id}.json"
     if not path.exists():
         raise HTTPException(404, "Task not found")
-    task = json.loads(path.read_text())
+    task = json.loads(path.read_text(encoding="utf-8"))
     children = []
     for i, subtask in enumerate(task.get("body", "").split("\n")):
         subtask = subtask.strip().lstrip("-* ")
@@ -1235,9 +1235,9 @@ def create_goal(data: GoalCreate):
         # Auto-sync to brain/active-projects.md
         active_path = BASE_DIR / "brain" / "active-projects.md"
         if active_path.exists():
-            existing = active_path.read_text()
+            existing = active_path.read_text(encoding="utf-8")
             existing += f"\n- [{goal['title']}](goal:{goal['id']}) — {goal['description'][:80]}\n"
-            active_path.write_text(existing)
+            active_path.write_text(existing, encoding="utf-8")
         append_audit({"action": "goal_created", "title": data.title})
         return goal
     except Exception as e:
@@ -1283,7 +1283,7 @@ def list_journal_entries():
         for f in sorted(JOURNAL_DIR.glob("*.md"), reverse=True):
             entries.append({
                 "date": f.stem,
-                "preview": f.read_text()[:200],
+                "preview": f.read_text(encoding="utf-8")[:200],
                 "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
             })
         return {"entries": entries}
@@ -1295,7 +1295,7 @@ def get_journal_entry(entry_date: str):
     try:
         path = JOURNAL_DIR / f"{entry_date}.md"
         ensure_dir(JOURNAL_DIR)
-        content = path.read_text() if path.exists() else ""
+        content = path.read_text(encoding="utf-8") if path.exists() else ""
         return {"date": entry_date, "content": content}
     except Exception as e:
         return {"date": entry_date, "content": "", "error": str(e)}
@@ -1305,7 +1305,7 @@ def save_journal_entry(entry_date: str, data: JournalSave):
     try:
         ensure_dir(JOURNAL_DIR)
         path = JOURNAL_DIR / f"{entry_date}.md"
-        path.write_text(data.content)
+        path.write_text(data.content, encoding="utf-8")
         append_audit({"action": "journal_saved", "date": entry_date})
         return {"status": "saved", "date": entry_date}
     except Exception as e:
@@ -1319,7 +1319,7 @@ def search_journal(q: str = Query("")):
             return {"results": []}
         results = []
         for f in JOURNAL_DIR.glob("*.md"):
-            content = f.read_text()
+            content = f.read_text(encoding="utf-8")
             if q.lower() in content.lower():
                 results.append({"date": f.stem, "preview": content[:200]})
         return {"results": results, "query": q}
@@ -1427,8 +1427,8 @@ def get_skill_analytics():
             if d.is_dir() and not d.name.startswith("_"):
                 eval_path = d / "eval.json"
                 score_path = d / "score-history.json"
-                scores = json.loads(score_path.read_text()) if score_path.exists() else []
-                eval_data = json.loads(eval_path.read_text()) if eval_path.exists() else {}
+                scores = json.loads(score_path.read_text(encoding="utf-8")) if score_path.exists() else []
+                eval_data = json.loads(eval_path.read_text(encoding="utf-8")) if eval_path.exists() else {}
                 avg_score = sum(s.get("score", 0) for s in scores) / len(scores) if scores else 0
                 analytics.append({
                     "name": d.name,
@@ -1449,7 +1449,7 @@ def get_trend_analytics():
         for d in sorted(skills_dir.iterdir()):
             if d.is_dir() and not d.name.startswith("_"):
                 score_path = d / "score-history.json"
-                scores = json.loads(score_path.read_text()) if score_path.exists() else []
+                scores = json.loads(score_path.read_text(encoding="utf-8")) if score_path.exists() else []
                 if scores:
                     trends.append({
                         "name": d.name,
@@ -1500,7 +1500,7 @@ def get_session_replay(session_id: str):
         sessions_dir = Path.home() / ".local" / "share" / "opencode"
         log_file = sessions_dir / "log" / f"{session_id}.log"
         if log_file.exists():
-            content = log_file.read_text()
+            content = log_file.read_text(encoding="utf-8", errors="replace")
             lines = content.split("\n")
             messages = []
             for line in lines:
@@ -1526,7 +1526,7 @@ if dashboard_dir.exists():
 def index():
     html_file = BASE_DIR / "dashboard" / "index.html"
     if html_file.exists():
-        content = html_file.read_text()
+        content = html_file.read_text(encoding="utf-8")
         content = content.replace('href="styles.css"', 'href="/dashboard/styles.css"')
         content = content.replace('src="utils.js"', 'src="/dashboard/utils.js"')
         content = content.replace('src="api.js"', 'src="/dashboard/api.js"')

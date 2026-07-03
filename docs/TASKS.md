@@ -11,7 +11,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
 
 ## Phase 0 — Platform Hardening & Windows Support (PRD Epic A) `P0`
 
-- [ ] **0.1 UTF-8-safe file I/O** *(A1)*
+- [x] **0.1 UTF-8-safe file I/O** *(A1)*
   Files: `server.py`, `scheduler/scheduler.py`, `brain/memory_search.py`
   Add `encoding="utf-8"` to every `read_text()`, `write_text()`, and text-mode `open()` (~60+ call sites; grep for all three patterns). Add `errors="replace"` only where reading external/agent-produced logs.
   **Done when:** `GET /` returns 200 on Windows *without* `-X utf8`; grep finds no unencoded text I/O.
