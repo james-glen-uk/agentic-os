@@ -297,11 +297,16 @@ def check_agent(name: str) -> dict:
 @app.get("/api/status")
 def get_status():
     agents = [check_agent(a) for a in ["opencode", "hermes", "gemini"]]
-    skills = list_dir(BASE_DIR / "skills")
+    skills_dir = BASE_DIR / "skills"
+    skills_count = 0
+    if skills_dir.exists():
+        # skills are directories (skills/<name>/SKILL.md), not files
+        skills_count = len([p for p in skills_dir.iterdir()
+                            if p.is_dir() and not p.name.startswith("_")])
     return {
         "status": "healthy",
         "agents": agents,
-        "skills_count": len(skills),
+        "skills_count": skills_count,
         "uptime": time.time(),
     }
 

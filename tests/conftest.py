@@ -38,10 +38,12 @@ def server(app_home):
     os.environ["AGENTIC_OS_HOME"] = str(app_home)
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
+    import brain.memory_search as memory_mod
     import scheduler.scheduler as sched_mod
     import server as server_mod
 
-    # Reload in case either module was imported before the env var was set
+    # Reload in case any module was imported before the env var was set
+    importlib.reload(memory_mod)
     importlib.reload(sched_mod)
     server_mod = importlib.reload(server_mod)
     assert server_mod.BASE_DIR == app_home.resolve()

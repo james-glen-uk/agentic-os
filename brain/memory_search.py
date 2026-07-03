@@ -4,6 +4,7 @@ Full-text search across brain files, skills, journal, and prompts.
 Auto-indexes text content on startup and provides search + entity extraction.
 """
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -11,8 +12,10 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.resolve()
-DB_PATH = BASE_DIR.parent / "data" / "memory.db"
+# Root of all runtime state; AGENTIC_OS_HOME overrides for tests/custom installs
+ROOT_DIR = Path(os.environ.get("AGENTIC_OS_HOME") or Path(__file__).parent.parent).resolve()
+BASE_DIR = ROOT_DIR / "brain"
+DB_PATH = ROOT_DIR / "data" / "memory.db"
 
 _local = threading.local()
 

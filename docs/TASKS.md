@@ -36,7 +36,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   On boot: probe each enabled agent CLI (`--version`, short timeout), log found/missing + hint, cache result for health endpoints. Replace `print()` with `logging` (level from settings).
   **Done when:** boot log shows a clear agent availability table; missing CLI ⇒ agent offline, not runtime exceptions.
 
-- [ ] **0.6 P0 endpoint test coverage** *(A5)*
+- [x] **0.6 P0 endpoint test coverage** *(A5)*
   Files: `tests/test_brain.py`, `test_skills.py`, `test_scheduler.py`, `test_kanban.py`, `test_goals_journal.py`, `test_settings.py`, `test_memory_search.py`, `test_backup.py`, `test_circuit_breaker.py`; new `.github/workflows/ci.yml`
   Mock `subprocess.run` for agent execution. Include security regressions (path traversal on brain/skill names, settings key masking).
   **Done when:** CI green on `windows-latest` + `ubuntu-latest`.
