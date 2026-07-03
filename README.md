@@ -98,11 +98,23 @@ A locally-hosted operating system for AI agents — an open-source GitHub reposi
 
 ## 🚀 Quick Start
 
+**Linux / macOS**
+
 ```bash
 git clone https://github.com/modimihir07/agentic-os.git
 cd agentic-os
 chmod +x install.sh && ./install.sh
 ./start.sh
+# Open http://127.0.0.1:8080
+```
+
+**Windows (PowerShell)**
+
+```powershell
+git clone https://github.com/modimihir07/agentic-os.git
+cd agentic-os
+./install.ps1
+./start.ps1
 # Open http://127.0.0.1:8080
 ```
 
@@ -357,7 +369,7 @@ Open Agentic OS on your phone — bottom nav bar replaces sidebar, touch targets
 
 ## 🧪 Tested On
 
-- **OS**: Linux (Ubuntu 22.04+), macOS
+- **OS**: Linux (Ubuntu 22.04+), macOS, Windows 11 (PowerShell)
 - **Python**: 3.10, 3.11, 3.12
 - **Browsers**: Chrome, Firefox, Edge
 - **Agents**: opencode v0.8+, Hermes Agent v1.0+, Gemini CLI v1.0+

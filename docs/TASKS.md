@@ -21,7 +21,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Fixtures: temp copies of `data/`, `brain/`, `skills/` so tests never touch real runtime state; FastAPI `TestClient` app factory; regression test for the 0.1 cp1252 crash (serve index containing non-ASCII bytes).
   **Done when:** `pytest` runs green from clean clone; runtime dirs untouched after test run.
 
-- [ ] **0.3 Windows install/start scripts** *(A2)*
+- [x] **0.3 Windows install/start scripts** *(A2)*
   Files: new `install.ps1`, new `start.ps1`, edit `install.sh`, `README.md`
   `install.ps1`: `py -3.11` detection, `pip install -r requirements.txt`, create `backups/ audit/`, detect opencode/hermes/gemini/claude CLIs with install hints. `start.ps1`: read port from `data/settings.json`, launch with UTF-8 env. `install.sh`: handle `MINGW*|MSYS*` by pointing to `install.ps1` instead of `exit 1`. README gets a Windows Quick Start.
   **Done when:** fresh clone on Windows: `./install.ps1; ./start.ps1` → dashboard up.

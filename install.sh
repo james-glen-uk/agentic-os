@@ -9,6 +9,12 @@ OS="$(uname -s)"
 case "$OS" in
     Linux)   OS="linux" ;;
     Darwin)  OS="macos" ;;
+    MINGW*|MSYS*|CYGWIN*)
+        echo "Windows detected (Git Bash/MSYS). Use the PowerShell installer instead:"
+        echo "  powershell -ExecutionPolicy Bypass -File install.ps1"
+        echo "Then start with:  powershell -ExecutionPolicy Bypass -File start.ps1"
+        exit 1
+        ;;
     *)       echo "Unsupported OS: $OS"; exit 1 ;;
 esac
 echo "Detected OS: $OS"
