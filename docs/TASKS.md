@@ -58,7 +58,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Order: skill `Primary:`/config override → routes file → router suggestion → default. Skip agents with open circuit (`data/circuit-breaker.json`) or offline health. Record attempt chain in run result + audit.
   **Done when:** test: primary mocked to fail ⇒ run succeeds on secondary, audit notes substitution; all agents exhausted ⇒ error dashboard shows full chain.
 
-- [ ] **1.4 Free-only mode + cost-aware ordering** *(C2)*
+- [x] **1.4 Free-only mode + cost-aware ordering** *(C2)*
   Files: `server.py`, `data/settings.json` (`routing.free_only`, `routing.prefer`), `dashboard/pages/settings.js`, `README.md`
   `free_only=true` excludes claude from every chain; `prefer: cost|quality` reorders. Rewrite README routing/fallback section to match reality.
   **Done when:** toggle in settings UI works; tests cover both modes; README claim audit for routing passes.

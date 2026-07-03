@@ -3,7 +3,7 @@
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"/>
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+"/>
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI"/>
-  <img src="https://img.shields.io/badge/agents-3-orange.svg" alt="3 Agents"/>
+  <img src="https://img.shields.io/badge/agents-4-orange.svg" alt="4 Agents"/>
   <img src="https://img.shields.io/badge/skills-16-purple.svg" alt="16 Skills"/>
   <img src="https://img.shields.io/badge/version-v0.3.0-blueviolet.svg" alt="v0.3.0"/>
   <img src="https://img.shields.io/badge/status-stable-brightgreen.svg" alt="Status: Stable"/>
@@ -13,7 +13,7 @@
 
 # Agentic OS (agentic-os) 🧠 — Multi-Agent Orchestration Platform
 
-A locally-hosted operating system for AI agents — an open-source GitHub repository — that coordinates **opencode**, **Hermes Agent**, and **Gemini CLI** into a unified dashboard with persistent memory, cron scheduling, skill execution, cost analytics, and disaster recovery.
+A locally-hosted operating system for AI agents — an open-source GitHub repository — that coordinates **opencode**, **Hermes Agent**, **Gemini CLI**, and optionally **Claude Code** into a unified dashboard with persistent memory, cron scheduling, skill execution, fallback routing, cost analytics, and disaster recovery.
 
 > **Why Agentic OS?** Most agent tools work in isolation — a terminal for coding, a separate chat for research, another for memory. Agentic OS is the **control plane** that unifies them: one dashboard, one memory layer, one scheduler, one skill hub. Three agents, infinite capabilities.
 
@@ -23,7 +23,7 @@ A locally-hosted operating system for AI agents — an open-source GitHub reposi
 
 | Category | Features |
 |----------|----------|
-| **🤖 3-Agent Engine** | opencode (code/DevOps), Hermes (memory/scheduling), Gemini (research/analysis) with intelligent routing |
+| **🤖 4-Agent Engine** | opencode (code/DevOps), Hermes (memory/scheduling), Gemini (research/analysis), Claude Code (complex builds, optional/paid) with keyword routing and real fallback chains |
 | **🧩 16+ Skills** | Executable skill packs with eval scoring, learnings, and score history per run |
 | **🧠 Persistent Memory** | SQLite FTS5 + `brain/` folder — shared context read by all agents at session start |
 | **⏱ Cron Scheduler** | APScheduler-powered jobs — heartbeat, memory consolidation, daily standup, DevOps audit |
@@ -86,13 +86,17 @@ A locally-hosted operating system for AI agents — an open-source GitHub reposi
 | **opencode** | Code generation, DevOps, file operations | deepseek-v4-flash-free | opencode-zen | **$0** |
 | **Hermes Agent** | Persistent memory, scheduling, messaging | Owl Alpha (1M ctx) | OpenRouter | **$0** |
 | **Gemini CLI** | Web research, multi-modal analysis | gemini-2.5-flash | Google OAuth | **$0** |
+| **Claude Code** | Complex builds, refactors, orchestration | CLI default (configurable) | Anthropic | Paid (optional) |
 
-### Routing Rules
+### Routing & Fallback (how it actually works)
 
-- **Code/DevOps task?** → opencode
-- **Memory/Channel/Schedule?** → Hermes Agent
-- **Research/Analysis?** → Gemini CLI
-- **Complex multi-step?** → Chain: Gemini researches → opencode implements → Hermes monitors/schedules
+Every agent call — chat or skill run — resolves an **ordered fallback chain** and tries agents until one succeeds:
+
+1. **Primary**: your explicit agent choice, or (with `auto`) keyword routing — code/devops → opencode, memory/schedule → Hermes, research/analysis → Gemini, implement/refactor/orchestrate → Claude Code, or the skill's `Primary:` assignment.
+2. **Fallbacks**: the remaining agents, ordered by `routing.prefer` (`cost` = free agents first, default; `quality` = Claude Code first). Agents with an **open circuit breaker** or an **offline CLI** are pushed to the back.
+3. **Free-only mode**: `routing.free_only: true` (Settings → Routing & Fallback) removes paid agents from every chain — the free trio keeps everything working at $0.
+
+Failures trip the per-agent circuit breaker; successes reset it. Substitutions are recorded in the audit trail and returned in the API response (`attempts`, `fallback_used`). A call fails only when **every** agent in the chain is exhausted, and the full attempt chain lands in the Error Dashboard. Claude Code usage is metered into Cost Analytics automatically (tokens + USD per run).
 
 ---
 
