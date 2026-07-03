@@ -16,7 +16,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Add `encoding="utf-8"` to every `read_text()`, `write_text()`, and text-mode `open()` (~60+ call sites; grep for all three patterns). Add `errors="replace"` only where reading external/agent-produced logs.
   **Done when:** `GET /` returns 200 on Windows *without* `-X utf8`; grep finds no unencoded text I/O.
 
-- [ ] **0.2 Test harness bootstrap** *(A5)*
+- [x] **0.2 Test harness bootstrap** *(A5)*
   Files: new `tests/conftest.py`, `tests/test_smoke.py`, `requirements-dev.txt` (pytest, httpx)
   Fixtures: temp copies of `data/`, `brain/`, `skills/` so tests never touch real runtime state; FastAPI `TestClient` app factory; regression test for the 0.1 cp1252 crash (serve index containing non-ASCII bytes).
   **Done when:** `pytest` runs green from clean clone; runtime dirs untouched after test run.

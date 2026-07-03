@@ -15,9 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Callable
 
-BASE_DIR = Path(__file__).parent.resolve()
+# Root of all runtime state; AGENTIC_OS_HOME overrides for tests/custom installs
+ROOT_DIR = Path(os.environ.get("AGENTIC_OS_HOME") or Path(__file__).parent.parent).resolve()
+BASE_DIR = ROOT_DIR / "scheduler"
 JOBS_DIR = BASE_DIR / "jobs"
-HISTORY_FILE = BASE_DIR.parent / "data" / "scheduler-history.json"
+HISTORY_FILE = ROOT_DIR / "data" / "scheduler-history.json"
 
 _event_listeners = []
 _on_files_changed = []
@@ -77,7 +79,7 @@ def get_job_by_name(name: str) -> Optional[dict]:
 
 def run_skill(skill_name: str, trigger: str = "scheduler", input_text: str = ""):
     """Execute a skill via the API."""
-    audit_file = BASE_DIR.parent / "audit" / "audit.log"
+    audit_file = ROOT_DIR / "audit" / "audit.log"
     timestamp = datetime.now(timezone.utc).isoformat()
     entry = {
         "action": "scheduler_run",

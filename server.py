@@ -64,7 +64,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_DIR = Path(__file__).parent.resolve()
+# Root of all runtime state; AGENTIC_OS_HOME overrides for tests/custom installs
+BASE_DIR = Path(os.environ.get("AGENTIC_OS_HOME") or Path(__file__).parent).resolve()
 
 # ─── Models ───────────────────────────────────────────────────────
 
