@@ -53,7 +53,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Health probe (platform-aware via 0.4), chat selector entry, routes for complex/build/orchestration keywords, cost recording per run (tokens from JSON output).
   **Done when:** claude appears in health/chat/router/cost pages; with claude absent, trio behavior is byte-for-byte unchanged (test).
 
-- [ ] **1.3 Fallback chain engine** *(C1)*
+- [x] **1.3 Fallback chain engine** *(C1)*
   Files: `server.py` (new `resolve_agent_chain()` + `execute_with_fallback()` wrapping `execute_agent()`), `data/agent-routes.json` (chain config)
   Order: skill `Primary:`/config override → routes file → router suggestion → default. Skip agents with open circuit (`data/circuit-breaker.json`) or offline health. Record attempt chain in run result + audit.
   **Done when:** test: primary mocked to fail ⇒ run succeeds on secondary, audit notes substitution; all agents exhausted ⇒ error dashboard shows full chain.

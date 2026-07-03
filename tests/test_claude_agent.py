@@ -55,7 +55,10 @@ def test_claude_timeout_is_graceful(client, fake_run_cli):
 def test_claude_auth_error_hint(client, fake_run_cli):
     fake_run_cli.update({"code": 1, "out": "", "err": "Please log in with `claude login`"})
     r = client.post("/api/chat", json={"agent": "claude", "message": "hi"})
-    assert "needs auth" in r.json()["response"]["content"]
+    # Auth failure triggers fallback; the hint is preserved in the attempt log
+    attempts = r.json()["attempts"]
+    assert attempts[0]["agent"] == "claude"
+    assert "needs auth" in attempts[0]["error"]
 
 
 def test_claude_non_json_output_falls_back(client, fake_run_cli):

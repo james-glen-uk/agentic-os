@@ -16,7 +16,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Directories copied into the isolated home (templates the app reads)
-TEMPLATE_DIRS = ["dashboard", "brain", "skills", "scheduler", "prompts", "standards", "registry"]
+TEMPLATE_DIRS = ["dashboard", "brain", "skills", "scheduler", "prompts", "standards", "registry", "agents"]
 # Runtime directories created empty
 RUNTIME_DIRS = ["data", "data/kanban", "audit", "backups"]
 
