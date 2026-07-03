@@ -50,7 +50,7 @@ async function suggestRouter() {
   try {
     const data = await api.suggestRouter(task);
     const result = document.getElementById('routerResult');
-    const agentIcons = { opencode: '🔧', hermes: '⚡', gemini: '🧠' };
+    const agentIcons = { opencode: '🔧', hermes: '⚡', gemini: '🧠', claude: '🤖' };
     const confidenceColors = { high: 'var(--green)', medium: 'var(--yellow)', low: 'var(--text-muted)' };
     result.innerHTML = `
       <div class="card" style="border-color:${confidenceColors[data.confidence] || 'var(--border)'};margin-bottom:12px">

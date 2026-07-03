@@ -119,7 +119,7 @@ async function recordTestCost() {
   showModal('Record Cost Entry', `
     <div class="form-group">
       <label class="form-label">Agent</label>
-      <select id="rcAgent" class="form-select"><option>opencode</option><option>hermes</option><option>gemini</option></select>
+      <select id="rcAgent" class="form-select"><option>opencode</option><option>hermes</option><option>gemini</option><option>claude</option></select>
     </div>
     <div class="form-group">
       <label class="form-label">Model</label>

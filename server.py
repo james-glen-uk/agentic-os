@@ -275,14 +275,23 @@ def log_agent_cli_table(results: dict):
 
 # ─── Agent Discovery (instant filesystem checks) ────────────────────
 
+# Canonical agent list: the free-tier trio + Claude Code (premium)
+KNOWN_AGENTS = ["opencode", "hermes", "gemini", "claude"]
+
+def load_agent_config(agent: str) -> dict:
+    p = BASE_DIR / "agents" / agent / f"{agent}.json"
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
 def check_agent(name: str) -> dict:
     """Instant filesystem-based check. No subprocess needed."""
     try:
-        if name == "opencode":
-            exists = shutil.which("opencode") is not None
-            status = "online" if exists else "offline"
-        elif name == "hermes":
-            exists = shutil.which("hermes") is not None
+        if name in ("opencode", "hermes", "claude"):
+            exists = shutil.which(name) is not None
             status = "online" if exists else "offline"
         elif name == "gemini":
             # Gemini has valid OAuth tokens logged in
@@ -300,7 +309,7 @@ def check_agent(name: str) -> dict:
 
 @app.get("/api/status")
 def get_status():
-    agents = [check_agent(a) for a in ["opencode", "hermes", "gemini"]]
+    agents = [check_agent(a) for a in KNOWN_AGENTS]
     skills_dir = BASE_DIR / "skills"
     skills_count = 0
     if skills_dir.exists():
@@ -417,7 +426,7 @@ def run_skill(name: str, req: Optional[SkillRunRequest] = None):
                 line = line.strip()
                 if "Primary:" in line:
                     candidate = line.split(":")[-1].strip().lower()
-                    if candidate in ("opencode", "hermes", "gemini"):
+                    if candidate in KNOWN_AGENTS:
                         agent_choice = candidate
                         break
             if agent_choice == "auto":
@@ -828,7 +837,7 @@ def get_circuit_breaker():
 @app.post("/api/circuit-breaker/trip")
 def trip_circuit_breaker(data: dict):
     agent = data.get("agent", "")
-    if agent not in ["opencode", "hermes", "gemini"]:
+    if agent not in KNOWN_AGENTS:
         raise HTTPException(400, "Invalid agent")
     state = _get_circuit_state()
     if agent not in state["agents"]:
@@ -845,7 +854,7 @@ def trip_circuit_breaker(data: dict):
 @app.post("/api/circuit-breaker/reset")
 def reset_circuit_breaker(data: dict):
     agent = data.get("agent", "")
-    if agent not in ["opencode", "hermes", "gemini"]:
+    if agent not in KNOWN_AGENTS:
         raise HTTPException(400, "Invalid agent")
     state = _get_circuit_state()
     state["agents"][agent] = {"state": "closed", "failures": 0, "opened_at": None}
@@ -898,7 +907,8 @@ def save_chat_message(msg: dict):
     CHAT_HISTORY_FILE.write_text(json.dumps(history, indent=2), encoding="utf-8")
 
 def run_cli(args: list, timeout: int = 30) -> tuple:
-    r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    r = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                       encoding="utf-8", errors="replace")
     return r.returncode, r.stdout, r.stderr
 
 def clean_hermes_output(raw: str) -> str:
@@ -990,6 +1000,38 @@ def execute_agent(agent: str, message: str) -> str:
                 return combined or f"gemini returned exit code {code}"
             return "Gemini CLI did not return a response."
 
+        elif agent == "claude":
+            cfg = load_agent_config("claude")
+            cmd = ["claude", "-p", message, "--output-format", "json",
+                   "--max-turns", str(cfg.get("max_turns", 5))]
+            if cfg.get("model"):
+                cmd += ["--model", cfg["model"]]
+            try:
+                code, out, err = run_cli(cmd, timeout=cfg.get("timeout", 180))
+            except subprocess.TimeoutExpired:
+                return "⏱ Claude Code timed out.\n\nTry a shorter prompt, or raise `timeout` in agents/claude/claude.json."
+            if code == 0:
+                try:
+                    result_data = json.loads(out or "{}")
+                except json.JSONDecodeError:
+                    return (out or "").strip() or "Claude Code returned no output."
+                cost = result_data.get("total_cost_usd")
+                if cost:
+                    usage = result_data.get("usage", {}) or {}
+                    tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+                    try:
+                        record_cost({"agent": "claude", "tokens": tokens,
+                                     "cost": cost, "model": cfg.get("model") or "claude-default"})
+                    except Exception:
+                        log.warning("Failed to record claude cost", exc_info=True)
+                text = (result_data.get("result") or "").strip()
+                return text or "Claude Code returned an empty response."
+            err_msg = (err or "").strip()
+            low = err_msg.lower()
+            if "log in" in low or "login" in low or "api key" in low or "authent" in low:
+                return f"**Claude Code needs auth**\n\nRun `claude` once in a terminal to log in.\n\n**Details:** {err_msg[:200]}"
+            return err_msg or f"claude returned exit code {code}"
+
         else:
             return f"Unknown agent: {agent}"
     except subprocess.TimeoutExpired:
@@ -1002,8 +1044,8 @@ def execute_agent(agent: str, message: str) -> str:
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     agent = req.agent.lower().strip()
-    if agent not in ["opencode", "hermes", "gemini"]:
-        raise HTTPException(400, "Agent must be one of: opencode, hermes, gemini")
+    if agent not in KNOWN_AGENTS:
+        raise HTTPException(400, f"Agent must be one of: {', '.join(KNOWN_AGENTS)}")
     message = (req.message or "").strip()
     if not message:
         raise HTTPException(400, "Message cannot be empty")
@@ -1437,7 +1479,7 @@ def search_journal(q: str = Query("")):
 def get_agent_health():
     try:
         agents = []
-        for name in ["opencode", "hermes", "gemini"]:
+        for name in KNOWN_AGENTS:
             info = check_agent(name)
             info["uptime"] = 0
             info["success_rate"] = 100
@@ -1450,7 +1492,7 @@ def get_agent_health():
 @app.get("/api/agents/{name}/stats")
 def get_agent_stats(name: str):
     try:
-        if name not in ["opencode", "hermes", "gemini"]:
+        if name not in KNOWN_AGENTS:
             raise HTTPException(400, "Invalid agent")
         info = check_agent(name)
         return {
@@ -1471,7 +1513,7 @@ def get_agent_stats(name: str):
 def refresh_agent_health():
     try:
         agents = []
-        for name in ["opencode", "hermes", "gemini"]:
+        for name in KNOWN_AGENTS:
             info = check_agent(name)
             agents.append(info)
         append_audit({"action": "agent_health_refreshed"})
@@ -1485,6 +1527,7 @@ ROUTER_RULES = {
     "opencode": ["code", "devops", "deploy", "git", "file", "terraform", "docker", "test", "build", "infra", "script"],
     "hermes": ["memory", "schedule", "channel", "skill", "cron", "reminder", "brain", "plugin", "backup"],
     "gemini": ["research", "analyze", "search", "compare", "explain", "study", "learn", "document", "report", "review"],
+    "claude": ["implement", "refactor", "architect", "orchestrate", "spec", "prd", "pipeline", "complex", "multi-step", "feature"],
 }
 
 @app.post("/api/router/suggest")
@@ -1509,7 +1552,7 @@ def router_suggest(data: RouterSuggest):
 def router_route(data: RouterRoute):
     try:
         agent = data.agent.lower()
-        if agent not in ["opencode", "hermes", "gemini"]:
+        if agent not in KNOWN_AGENTS:
             return {"status": "error", "message": f"Invalid agent: {agent}"}
         append_audit({"action": "task_routed", "agent": agent, "task_preview": data.task[:50]})
         return {

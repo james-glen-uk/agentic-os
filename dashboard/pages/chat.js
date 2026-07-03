@@ -4,7 +4,7 @@ async function renderChat() {
     <div class="page-header">
       <div class="page-header-left">
         <h1 class="page-title">AI Chat</h1>
-        <p class="page-subtitle">Talk to opencode, Hermes, and Gemini CLI</p>
+        <p class="page-subtitle">Talk to opencode, Hermes, Gemini CLI, and Claude Code</p>
       </div>
       <div class="btn-group">
         <button class="btn" onclick="clearChat()">🗑 Clear</button>
@@ -35,6 +35,13 @@ async function renderChat() {
             <div class="chat-agent-desc">Research & Analysis</div>
           </div>
         </div>
+        <div class="chat-agent" data-agent="claude" onclick="selectAgent('claude')">
+          <div class="agent-dot offline"></div>
+          <div>
+            <div class="chat-agent-name">Claude Code</div>
+            <div class="chat-agent-desc">Complex Builds & Orchestration</div>
+          </div>
+        </div>
         <div style="margin-top:auto;padding:12px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border)">
           <div id="chatAgentStatus">opencode • ready</div>
         </div>
@@ -49,6 +56,7 @@ async function renderChat() {
               <button class="btn btn-sm" onclick="sendQuickPrompt('opencode','Check the system status and running processes')">🔍 System Check</button>
               <button class="btn btn-sm" onclick="sendQuickPrompt('hermes','What did I work on recently?')">🧠 Recall Memory</button>
               <button class="btn btn-sm" onclick="sendQuickPrompt('gemini','Research the latest trends in AI agents')">📊 Research</button>
+              <button class="btn btn-sm" onclick="sendQuickPrompt('claude','Review this project structure and suggest one improvement')">🤖 Claude Code</button>
             </div>
           </div>
         </div>

@@ -59,8 +59,8 @@ async function refreshAgentHealth() {
     const agents = data.agents || [];
     const cards = document.getElementById('agentHealthCards');
     if (!cards) return;
-    const agentIcons = { opencode: '🔧', hermes: '⚡', gemini: '🧠' };
-    const agentColors = { opencode: 'purple', hermes: 'green', gemini: 'blue' };
+    const agentIcons = { opencode: '🔧', hermes: '⚡', gemini: '🧠', claude: '🤖' };
+    const agentColors = { opencode: 'purple', hermes: 'green', gemini: 'blue', claude: 'yellow' };
     cards.innerHTML = agents.map(a => `
       <div class="agent-health-card">
         <div class="agent-health-avatar" style="background:var(--${agentColors[a.name] || 'accent'}-dim);color:var(--${agentColors[a.name] || 'accent'})">

@@ -1,0 +1,10 @@
+{
+  "name": "claude",
+  "description": "Claude Code (headless) — premium agent for complex builds, refactors, and orchestration",
+  "command": "claude",
+  "model": null,
+  "max_turns": 5,
+  "timeout": 180,
+  "cost_tier": "paid",
+  "notes": "model null = CLI default. Runs as `claude -p <prompt> --output-format json`. Requires the Claude Code CLI to be installed and logged in."
+}
