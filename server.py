@@ -5,6 +5,7 @@ Multi-agent orchestration server for opencode, Hermes, Gemini CLI
 """
 import argparse
 import json
+import logging
 import os
 import re
 import shutil
@@ -24,18 +25,21 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+log = logging.getLogger("agentic_os")
+
 _scheduler_instance = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _scheduler_instance
+    log_agent_cli_table(probe_agent_clis())
     try:
         from scheduler.scheduler import CronScheduler
         _scheduler_instance = CronScheduler()
         _scheduler_instance.start()
-        print("Event-driven scheduler started")
+        log.info("Event-driven scheduler started")
     except Exception as e:
-        print(f"Scheduler not available: {e}")
+        log.warning("Scheduler not available: %s", e)
     yield
     if _scheduler_instance:
         try:
@@ -201,6 +205,69 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+# ─── Settings / Logging / Boot-time CLI validation ──────────────────
+
+def load_settings() -> dict:
+    sf = BASE_DIR / "data" / "settings.json"
+    if sf.exists():
+        try:
+            return json.loads(sf.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+def setup_logging():
+    level_name = str(load_settings().get("logging", {}).get("level", "INFO")).upper()
+    logging.basicConfig(
+        level=getattr(logging, level_name, logging.INFO),
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+    )
+
+setup_logging()
+
+AGENT_CLI_HINTS = {
+    "opencode": "npm install -g @opencode/cli",
+    "hermes": "https://github.com/NousResearch/hermes-agent",
+    "gemini": "npm install -g @google/gemini-cli",
+    "claude": "https://claude.com/claude-code",
+}
+
+_agent_cli_status: dict = {}
+
+def probe_agent_clis() -> dict:
+    """Boot-time probe: which agent CLIs exist, and their versions."""
+    enabled_map = load_settings().get("agents", {})
+    results = {}
+    for name in AGENT_CLI_HINTS:
+        enabled = enabled_map.get(name, True)
+        path = shutil.which(name) if enabled else None
+        version = None
+        if path:
+            try:
+                proc = subprocess.run(
+                    [name, "--version"], capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=10,
+                )
+                first_line = ((proc.stdout or "") + (proc.stderr or "")).strip().splitlines()
+                version = first_line[0][:80] if first_line else None
+            except Exception:
+                pass
+        results[name] = {"enabled": enabled, "found": path is not None,
+                         "path": path, "version": version}
+    _agent_cli_status.clear()
+    _agent_cli_status.update(results)
+    return results
+
+def log_agent_cli_table(results: dict):
+    log.info("Agent CLI availability:")
+    for name, r in results.items():
+        if not r["enabled"]:
+            log.info("  %-9s disabled in settings", name)
+        elif r["found"]:
+            log.info("  %-9s OK  %s", name, r["version"] or r["path"])
+        else:
+            log.warning("  %-9s missing — install: %s", name, AGENT_CLI_HINTS[name])
 
 # ─── Agent Discovery (instant filesystem checks) ────────────────────
 

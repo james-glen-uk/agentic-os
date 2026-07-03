@@ -31,7 +31,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Resolve per-OS equivalents (`%LOCALAPPDATA%`/`%USERPROFILE%` on Windows); single helper, no scattered conditionals.
   **Done when:** `/api/status` and `/api/agents/health` report real availability on Windows; unit test covers path resolution per platform (monkeypatched).
 
-- [ ] **0.5 Startup validation & logging** *(A4)*
+- [x] **0.5 Startup validation & logging** *(A4)*
   Files: `server.py`, `scheduler/scheduler.py`, `data/settings.json` schema
   On boot: probe each enabled agent CLI (`--version`, short timeout), log found/missing + hint, cache result for health endpoints. Replace `print()` with `logging` (level from settings).
   **Done when:** boot log shows a clear agent availability table; missing CLI ⇒ agent offline, not runtime exceptions.

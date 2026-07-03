@@ -5,6 +5,7 @@ File watcher + cron-based scheduler with execution history.
 Handles job reloading, webhook triggers, skill execution events.
 """
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -20,6 +21,8 @@ ROOT_DIR = Path(os.environ.get("AGENTIC_OS_HOME") or Path(__file__).parent.paren
 BASE_DIR = ROOT_DIR / "scheduler"
 JOBS_DIR = BASE_DIR / "jobs"
 HISTORY_FILE = ROOT_DIR / "data" / "scheduler-history.json"
+
+log = logging.getLogger("agentic_os.scheduler")
 
 _event_listeners = []
 _on_files_changed = []
@@ -95,7 +98,7 @@ def run_skill(skill_name: str, trigger: str = "scheduler", input_text: str = "")
         "trigger": trigger,
         "status": "started",
     })
-    print(f"[{timestamp}] Skill '{skill_name}' triggered by {trigger}")
+    log.info("Skill '%s' triggered by %s", skill_name, trigger)
     return {"status": "triggered", "skill": skill_name, "trigger": trigger}
 
 
@@ -153,14 +156,14 @@ class CronScheduler:
             from apscheduler.schedulers.background import BackgroundScheduler as BS
             from apscheduler.triggers.cron import CronTrigger as CT
         except ImportError:
-            print("Install APScheduler: pip install apscheduler")
+            log.error("Install APScheduler: pip install apscheduler")
             return
         self._scheduler = BS()
         self._reload_jobs()
         self._scheduler.start()
         self._watcher.start()
         _on_files_changed.append(self._reload_jobs)
-        print(f"Agentic OS Scheduler running. Jobs loaded from: {JOBS_DIR}")
+        log.info("Agentic OS Scheduler running. Jobs loaded from: %s", JOBS_DIR)
 
     def stop(self):
         self._watcher.stop()
@@ -187,9 +190,9 @@ class CronScheduler:
                     misfire_grace_time=60,
                 )
             except Exception as e:
-                print(f"  Failed to schedule {data.get('name')}: {e}")
+                log.warning("Failed to schedule %s: %s", data.get("name"), e)
         count = len(self._scheduler.get_jobs())
-        print(f"  Scheduled {count} jobs")
+        log.info("Scheduled %d jobs", count)
 
 
 # ─── Standalone Entry ─────────────────────────────────────────
@@ -202,7 +205,7 @@ def main():
             time.sleep(60)
     except KeyboardInterrupt:
         scheduler.stop()
-        print("Scheduler stopped.")
+        log.info("Scheduler stopped.")
 
 if __name__ == "__main__":
     main()
