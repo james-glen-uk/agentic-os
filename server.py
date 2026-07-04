@@ -1122,7 +1122,8 @@ def list_artifacts(skill: str = "", tag: str = "", bookmarked: Optional[bool] = 
     items = []
     for meta_file in sorted(ARTIFACTS_DIR.glob("*.meta.json"), reverse=True):
         try:
-            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            # utf-8-sig: tolerate BOMs in hand-edited metadata
+            meta = json.loads(meta_file.read_text(encoding="utf-8-sig"))
         except Exception:
             continue
         if skill and meta.get("skill") != skill:
@@ -1142,14 +1143,14 @@ def list_artifacts(skill: str = "", tag: str = "", bookmarked: Optional[bool] = 
 
 @app.get("/api/artifacts/{art_id}")
 def get_artifact(art_id: str):
-    meta = json.loads(_artifact_meta_path(art_id).read_text(encoding="utf-8"))
+    meta = json.loads(_artifact_meta_path(art_id).read_text(encoding="utf-8-sig"))
     meta["content"] = _artifact_content(meta)
     return meta
 
 @app.patch("/api/artifacts/{art_id}")
 def update_artifact(art_id: str, data: ArtifactUpdate):
     p = _artifact_meta_path(art_id)
-    meta = json.loads(p.read_text(encoding="utf-8"))
+    meta = json.loads(p.read_text(encoding="utf-8-sig"))
     for field in ("title", "tags", "bookmarked"):
         val = getattr(data, field)
         if val is not None:
@@ -1161,7 +1162,7 @@ def update_artifact(art_id: str, data: ArtifactUpdate):
 @app.delete("/api/artifacts/{art_id}")
 def delete_artifact(art_id: str):
     p = _artifact_meta_path(art_id)
-    meta = json.loads(p.read_text(encoding="utf-8"))
+    meta = json.loads(p.read_text(encoding="utf-8-sig"))
     content_file = ARTIFACTS_DIR / meta.get("content_file", "")
     if content_file.is_file():
         content_file.unlink()

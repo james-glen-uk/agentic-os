@@ -101,6 +101,16 @@ const api = {
   getCircuitBreaker: () => api.get('/api/circuit-breaker'),
   tripCircuitBreaker: (agent) => api.post('/api/circuit-breaker/trip', { agent }),
   resetCircuitBreaker: (agent) => api.post('/api/circuit-breaker/reset', { agent }),
+  // Artifact Library
+  getArtifacts: (params = {}) => {
+    const qs = Object.entries(params)
+      .filter(([, v]) => v !== undefined && v !== '')
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    return api.get(`/api/artifacts${qs ? '?' + qs : ''}`);
+  },
+  getArtifact: (id) => api.get(`/api/artifacts/${encodeURIComponent(id)}`),
+  updateArtifact: (id, data) => api.patch(`/api/artifacts/${encodeURIComponent(id)}`, data),
+  deleteArtifact: (id) => api.del(`/api/artifacts/${encodeURIComponent(id)}`),
   // v0.3.0: PWA
   getManifest: () => api.get('/manifest.json'),
 };

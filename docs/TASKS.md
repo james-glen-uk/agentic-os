@@ -69,7 +69,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Files: `server.py` (new `/api/artifacts` GET/PATCH/DELETE + auto-save hook in `/api/skills/{name}/run`), new `data/artifacts/` layout (content file + `meta.json`), `brain/memory_search.py` (index artifacts into FTS5)
   **Done when:** every skill run persists full output as an artifact; list/filter/search/bookmark/tag/delete endpoints tested.
 
-- [ ] **2.2 Artifact Library page** *(D3)*
+- [x] **2.2 Artifact Library page** *(D3)*
   Files: new `dashboard/pages/artifacts.js`, `dashboard/index.html` (nav), `dashboard/api.js`, `styles.css`
   Grid with type-aware preview (markdown render, image, audio/video stubs for Phase 3), bookmark star, tag chips, search box. Follow existing page-module pattern (e.g. `journal.js`).
   **Done when:** artifacts from 2.1 browse/search/bookmark correctly in UI.
