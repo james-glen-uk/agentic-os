@@ -74,7 +74,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Grid with type-aware preview (markdown render, image, audio/video stubs for Phase 3), bookmark star, tag chips, search box. Follow existing page-module pattern (e.g. `journal.js`).
   **Done when:** artifacts from 2.1 browse/search/bookmark correctly in UI.
 
-- [ ] **2.3 News Oracle skill + job** *(D1)*
+- [x] **2.3 News Oracle skill + job** *(D1)*
   Files: new `skills/news-oracle/` (SKILL.md, eval.json, fetch+cluster logic), new `scheduler/jobs/news-oracle-job.json`, `data/settings.json` (`news.feeds` list with tech/AI defaults), `requirements.txt` (feedparser — per PRD open Q3, default choice)
   Fetch feeds → LLM topic clustering (routed via chain, research-typed ⇒ gemini primary) → `data/news/YYYY-MM-DD.json`. Daily cron + manual trigger via existing `/api/scheduler/trigger/{job_id}`. Retry on failure; stamp data age.
   **Done when:** manual trigger produces ranked topic JSON with sources; job visible/toggleable in scheduler page.

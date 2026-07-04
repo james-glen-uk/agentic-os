@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -34,7 +35,8 @@ async def lifespan(app: FastAPI):
     global _scheduler_instance
     log_agent_cli_table(probe_agent_clis())
     try:
-        from scheduler.scheduler import CronScheduler
+        from scheduler.scheduler import CronScheduler, on_event
+        on_event(_handle_scheduler_event)
         _scheduler_instance = CronScheduler()
         _scheduler_instance.start()
         log.info("Event-driven scheduler started")
@@ -1060,6 +1062,105 @@ def execute_agent(agent: str, message: str) -> str:
         return f"⚠ Agent '{agent}' CLI not installed. Install it and try again."
     except Exception as e:
         return f"⚠ Error communicating with {agent}: {str(e)}"
+
+# ─── News Oracle ──────────────────────────────────────────────────
+
+NEWS_DIR = BASE_DIR / "data" / "news"
+_NEWS_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+def _enrich_topics_with_llm(topics: list) -> list:
+    """Best-effort: ask an agent for one-line summaries per topic."""
+    if not topics:
+        return topics
+    lines = []
+    for t in topics:
+        heads = "; ".join(h["title"] for h in t["headlines"][:4])
+        lines.append(f"{t['rank']}. {t['title']} — headlines: {heads}")
+    prompt = (
+        "For each numbered news topic below, write a one-sentence neutral summary. "
+        "Reply with ONLY a JSON object mapping the topic number (string) to the summary.\n\n"
+        + "\n".join(lines)
+    )
+    try:
+        chain = resolve_agent_chain("auto", primary="gemini")
+        result = execute_with_fallback(chain, prompt)
+        if not result["agent"]:
+            return topics
+        match = re.search(r"\{.*\}", result["output"], re.DOTALL)
+        summaries = json.loads(match.group(0)) if match else {}
+        for t in topics:
+            s = summaries.get(str(t["rank"]))
+            if isinstance(s, str):
+                t["summary"] = s.strip()
+    except Exception:
+        log.warning("LLM topic enrichment failed; keeping heuristic topics", exc_info=True)
+    return topics
+
+def refresh_news() -> dict:
+    import news_oracle
+    news_cfg = load_settings().get("news", {})
+    feeds = news_cfg.get("feeds") or news_oracle.DEFAULT_FEEDS
+    entries = news_oracle.fetch_entries(feeds)
+    topics = news_oracle.cluster_topics(entries, max_topics=int(news_cfg.get("max_topics", 10)))
+    if news_cfg.get("use_llm"):
+        topics = _enrich_topics_with_llm(topics)
+    date = get_timestamp()[:10]
+    data = {
+        "date": date,
+        "generated_at": get_timestamp(),
+        "feed_count": len(feeds),
+        "entry_count": len(entries),
+        "topics": topics,
+    }
+    NEWS_DIR.mkdir(parents=True, exist_ok=True)
+    (NEWS_DIR / f"{date}.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    append_audit({"action": "news_refreshed", "topics": len(topics), "entries": len(entries)})
+    return data
+
+@app.post("/api/news/refresh")
+def news_refresh_endpoint():
+    try:
+        return refresh_news()
+    except Exception as e:
+        log_error("news-oracle", str(e), category="system")
+        raise HTTPException(500, f"News refresh failed: {e}")
+
+@app.get("/api/news/topics")
+def news_topics(date: str = ""):
+    if date and not _NEWS_DATE_RE.match(date):
+        raise HTTPException(400, "Invalid date (expected YYYY-MM-DD)")
+    if not NEWS_DIR.exists():
+        return {"topics": [], "date": None, "age_hours": None, "available_dates": []}
+    files = sorted(NEWS_DIR.glob("*.json"), reverse=True)
+    available = [f.stem for f in files]
+    target = NEWS_DIR / f"{date}.json" if date else (files[0] if files else None)
+    if not target or not target.exists():
+        return {"topics": [], "date": date or None, "age_hours": None, "available_dates": available}
+    data = json.loads(target.read_text(encoding="utf-8-sig"))
+    try:
+        generated = datetime.fromisoformat(data.get("generated_at", ""))
+        data["age_hours"] = round((datetime.now(timezone.utc) - generated).total_seconds() / 3600, 1)
+    except Exception:
+        data["age_hours"] = None
+    data["available_dates"] = available
+    return data
+
+# Executable scheduled skills: the stock scheduler only *emits* skill_run
+# events — this listener gives code-backed skills a real implementation.
+EXECUTABLE_SKILLS = {"news-oracle": refresh_news}
+
+def _handle_scheduler_event(event: dict):
+    if event.get("type") != "skill_run" or event.get("status") != "started":
+        return
+    fn = EXECUTABLE_SKILLS.get(event.get("skill", ""))
+    if fn:
+        def _run():
+            try:
+                fn()
+            except Exception:
+                log.warning("Scheduled %s run failed", event.get("skill"), exc_info=True)
+                log_error(event.get("skill", "scheduler"), "scheduled run failed", category="skill")
+        threading.Thread(target=_run, daemon=True).start()
 
 # ─── Artifact Library ─────────────────────────────────────────────
 # Every successful skill run persists its full output here — the
