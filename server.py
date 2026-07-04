@@ -192,6 +192,10 @@ class SecurityHeadersMiddleware:
                     (b"x-xss-protection", b"1; mode=block"),
                     (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
                     (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                    # Always revalidate (ETag/304) so dashboard JS is never
+                    # stale after an update; heuristic caching served old
+                    # files for hours otherwise
+                    (b"cache-control", b"no-cache"),
                 ]
                 # Only add CSP for non-API routes (dashboard HTML)
                 path = scope.get("path", "")

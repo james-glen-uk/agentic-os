@@ -1,0 +1,8 @@
+{
+  "criteria": [
+    { "name": "keyword_integration", "weight": 0.3 },
+    { "name": "structure_completeness", "weight": 0.3 },
+    { "name": "readability", "weight": 0.2 },
+    { "name": "factual_grounding", "weight": 0.2 }
+  ]
+}

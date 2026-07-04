@@ -79,12 +79,12 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Fetch feeds → LLM topic clustering (routed via chain, research-typed ⇒ gemini primary) → `data/news/YYYY-MM-DD.json`. Daily cron + manual trigger via existing `/api/scheduler/trigger/{job_id}`. Retry on failure; stamp data age.
   **Done when:** manual trigger produces ranked topic JSON with sources; job visible/toggleable in scheduler page.
 
-- [ ] **2.4 News page + one-click actions** *(D1, D2)*
+- [x] **2.4 News page + one-click actions** *(D1, D2)*
   Files: `server.py` (new `GET /api/news/topics`), new `dashboard/pages/news.js`, nav wiring
   Topic cards: rank, headlines, source links, data-age badge, buttons **SEO article** / **Social drafts** that invoke 2.5 skills with topic context injected.
   **Done when:** click on a card button → skill runs with topic context → artifact appears in library, linked back to topic.
 
-- [ ] **2.5 SEO article + social drafts skills** *(D2)*
+- [x] **2.5 SEO article + social drafts skills** *(D2)*
   Files: new `skills/seo-article/`, new `skills/social-drafts/` (from `skills/_template/`), prompt templates in `prompts/`
   Accept topic payload (headlines/links/summary) or free-text input. Outputs saved as library drafts — no external posting.
   **Done when:** both runnable standalone from Skills Hub and from news cards; outputs are structured markdown, tested with mocked agent.
