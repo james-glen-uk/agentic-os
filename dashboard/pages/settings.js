@@ -69,6 +69,11 @@ async function renderSettings() {
       </div>
 
       <div class="card">
+        <div class="card-header"><span class="card-title">🎙 Voice — "Hey Jarvis"</span></div>
+        <div id="voiceSettings"><div class="loading"><div class="loading-spinner"></div></div></div>
+      </div>
+
+      <div class="card">
         <div class="card-header"><span class="card-title">🎨 Dashboard</span></div>
         <div class="form-row">
           <div class="form-group">
@@ -134,8 +139,61 @@ async function renderSettings() {
       </div>
     `;
     loadDesktopSettings();
+    loadVoiceSettings(settings);
   } catch (err) {
     document.getElementById('settingsForm').innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠</div><div class="empty-state-title">${escapeHtml(err.message)}</div></div>`;
+  }
+}
+
+async function loadVoiceSettings(settings) {
+  const el = document.getElementById('voiceSettings');
+  if (!el) return;
+  const autoExec = ((settings || {}).voice || {}).auto_execute || false;
+  try {
+    const v = await api.voiceState();
+    const toggle = (id, label, checked, disabled, handler) => `
+      <label class="switch" style="width:auto;display:flex;align-items:center;gap:10px;margin:6px 0;${disabled ? 'opacity:.5' : ''}">
+        <input type="checkbox" id="${id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} onchange="${handler}">
+        <span class="switch-slider" style="position:relative;display:inline-block;width:40px;height:22px"></span>
+        <span style="font-size:13px">${label}</span>
+      </label>`;
+    el.innerHTML = `
+      <div style="font-size:12px;margin-bottom:8px">
+        Status: <strong>${v.available ? (v.enabled ? 'listening for "Hey Jarvis"' : 'ready') : 'unavailable'}</strong>
+      </div>
+      ${toggle('voiceEnabled', 'Enable always-on "Hey Jarvis" wake word', v.enabled, !v.available, 'toggleVoiceWake()')}
+      ${toggle('voiceAutoExec', 'Auto-run commands without confirmation', autoExec, false, 'saveVoiceAutoExec()')}
+      <p style="font-size:12px;color:var(--text-muted);margin-top:6px">
+        ${v.available
+          ? 'Say "Hey Jarvis" then a command — e.g. "schedule a daily standup at 9am", "start an orchestration to plan a launch", "add a journal note". You can also click the mic in the title bar to talk. Commands ask for confirmation unless auto-run is on.'
+          : `⚠ Voice deps not installed. Run <code>${v.install_hint || 'pip install -r requirements-voice.txt'}</code> to enable the wake word. The mic button (Chrome/Edge) still works.`}
+      </p>`;
+  } catch (err) {
+    el.innerHTML = `<div style="font-size:12px;color:var(--text-muted)">Voice service not available.</div>`;
+  }
+}
+
+async function toggleVoiceWake() {
+  const on = document.getElementById('voiceEnabled').checked;
+  try {
+    const s = on ? await api.voiceEnable() : await api.voiceDisable();
+    if (on && s.state === 'unavailable') {
+      showToast(s.error || 'Voice deps not installed', 'warning');
+    } else {
+      showToast(on ? 'Hey Jarvis is listening' : 'Wake word off', 'success');
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function saveVoiceAutoExec() {
+  const auto = document.getElementById('voiceAutoExec').checked;
+  try {
+    await api.updateSettings({ voice: { auto_execute: auto } });
+    showToast('Voice preference saved', 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
   }
 }
 

@@ -146,7 +146,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
 - [x] **5.3 PyInstaller packaging (Windows installer)** — verified: exe boots, seeds `%LOCALAPPDATA%\AgenticOS`, serves the dashboard.
 - [ ] **5.4 Voice backend: Hey Jarvis wake word (openWakeWord) + Whisper STT** — background listener, `/api/voice/state`, optional deps degrade gracefully.
 - [ ] **5.5 Voice command interpreter** — transcript → LLM-parsed action (schedule/orchestration/journal/skill/navigate…) → confirm → execute.
-- [ ] **5.6 Dashboard voice UI (backend-driven) + settings**
+- [x] **5.6 Dashboard voice UI (backend-driven) + settings**
 
 ---
 

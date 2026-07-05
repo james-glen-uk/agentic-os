@@ -117,6 +117,12 @@ const api = {
   // System / desktop
   getStartupSettings: () => api.get('/api/system/startup'),
   updateStartupSettings: (data) => api.put('/api/system/startup', data),
+  // Voice (Hey Jarvis)
+  voiceState: () => api.get('/api/voice/state'),
+  voiceEnable: () => api.post('/api/voice/enable', {}),
+  voiceDisable: () => api.post('/api/voice/disable', {}),
+  voiceCommand: (transcript, execute) => api.post('/api/voice/command', { transcript, execute }),
+  voiceExecute: (action, params) => api.post('/api/voice/execute', { action, params }),
   // Benchmark
   getBenchTasks: () => api.get('/api/bench/tasks'),
   runBench: (agents) => api.post('/api/bench/run', agents ? { agents } : {}),
