@@ -1028,8 +1028,10 @@ def migrate_legacy_chat_history():
 migrate_legacy_chat_history()
 
 def run_cli(args: list, timeout: int = 30) -> tuple:
+    # stdin=DEVNULL: headless CLIs (esp. `claude -p`) otherwise inherit the
+    # server's stdin and block ~3s waiting for input, polluting output.
     r = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
-                       encoding="utf-8", errors="replace")
+                       encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
     return r.returncode, r.stdout, r.stderr
 
 def clean_hermes_output(raw: str) -> str:
@@ -2190,7 +2192,7 @@ def _run_build_agent(sandbox: Path, prompt: str) -> dict:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=cfg.get("build_timeout", 600),
-                           cwd=str(sandbox))
+                           cwd=str(sandbox), stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         return {"ok": False, "output": "⏱ Build timed out.", "cost": 0.0}
     except FileNotFoundError:
