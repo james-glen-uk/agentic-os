@@ -10,6 +10,8 @@ backups/*.tar.gz
 audit/*
 data/settings.json
 data/chat-history.json
+data/chat-history.json.migrated
+data/conversations.json
 data/cost-history.json
 data/scheduler-history.json
 data/error-log.json
@@ -18,4 +20,6 @@ data/memory.db
 data/kanban/*.json
 data/artifacts/
 data/news/
+data/orchestrations/
+workspace/
 scheduler/*.pyc

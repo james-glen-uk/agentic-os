@@ -38,6 +38,25 @@ async function renderPrompts() {
   }
 }
 
+async function loadPromptsSubmenu() {
+  const list = document.getElementById('secondaryList');
+  if (!list) return;
+  list.innerHTML = renderSkeleton(3);
+  try {
+    const prompts = await api.getPrompts();
+    const entries = Object.entries(prompts);
+    list.innerHTML = entries.length ? entries.map(([name]) => {
+      const displayName = name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      return `
+      <div class="secondary-item" onclick="viewPrompt('${encodeURIComponent(name)}')">
+        <div class="secondary-item-title">${escapeHtml(displayName)}</div>
+      </div>`;
+    }).join('') : `<div class="empty-state-desc">No prompt templates</div>`;
+  } catch {
+    list.innerHTML = `<div class="empty-state-desc">Failed to load prompts</div>`;
+  }
+}
+
 async function viewPrompt(encodedName) {
   const name = decodeURIComponent(encodedName);
   let content = '';

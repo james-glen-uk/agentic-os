@@ -36,6 +36,24 @@ async function renderMemory() {
   }
 }
 
+async function loadMemorySubmenu() {
+  const list = document.getElementById('secondaryList');
+  if (!list) return;
+  list.innerHTML = renderSkeleton(3);
+  try {
+    const brain = await api.getBrain();
+    const files = Object.entries(brain);
+    list.innerHTML = files.length ? files.map(([name, content]) => `
+      <div class="secondary-item" onclick="editMemory('${encodeURIComponent(name)}')">
+        <div class="secondary-item-title mono">${escapeHtml(name)}</div>
+        <div class="secondary-item-meta">${content ? content.split('\n').length : 0} lines</div>
+      </div>
+    `).join('') : `<div class="empty-state-desc">No memory files</div>`;
+  } catch {
+    list.innerHTML = `<div class="empty-state-desc">Failed to load memory files</div>`;
+  }
+}
+
 async function editMemory(encodedName) {
   const name = decodeURIComponent(encodedName);
   const display = escapeHtml(name.replace('.md', '').replace(/-/g, ' '));
@@ -64,6 +82,7 @@ async function saveMemory(encodedName) {
     closeModal();
     showToast('Memory updated', 'success');
     renderMemory();
+    loadMemorySubmenu();
   } catch (err) {
     showToast(`Error: ${err.message}`, 'error');
   }

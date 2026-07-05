@@ -96,76 +96,64 @@ function renderKanbanBoard() {
 }
 
 function showAddKanbanTask() {
-  const modal = document.getElementById('modalContainer');
-  modal.innerHTML = `
-    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
-      <div class="modal" style="max-width:520px">
-        <div class="modal-header">
-          <div class="modal-title">Add Kanban Task</div>
-          <button class="modal-close" onclick="closeModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">Title *</label>
-            <input class="form-input" id="kanbanTitle" placeholder="e.g., Implement login page">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Description</label>
-            <textarea class="form-textarea" id="kanbanDescription" rows="2" placeholder="Brief description"></textarea>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Status</label>
-              <select class="form-select" id="kanbanStatus">
-                <option value="triage">Triage</option>
-                <option value="todo">To Do</option>
-                <option value="ready">Ready</option>
-                <option value="in_progress">In Progress</option>
-                <option value="blocked">Blocked</option>
-                <option value="done">Done</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Priority</label>
-              <select class="form-select" id="kanbanPriority">
-                <option value="low">Low</option>
-                <option value="medium" selected>Medium</option>
-                <option value="high">High</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Category</label>
-              <select class="form-select" id="kanbanCategory">
-                <option value="general">General</option>
-                <option value="development">Development</option>
-                <option value="devops">DevOps</option>
-                <option value="study">Study</option>
-                <option value="content">Content</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Assigned To</label>
-              <input class="form-input" id="kanbanAssigned" placeholder="e.g., opencode" style="text-transform:lowercase">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Target Date</label>
-              <input class="form-input" id="kanbanDate" type="date">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Tags (comma separated)</label>
-            <input class="form-input" id="kanbanTags" placeholder="e.g., frontend, api">
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-          <button class="btn btn-primary" onclick="createKanbanTask()">Add Task</button>
-        </div>
+  showModal('Add Kanban Task', `
+    <div class="form-group">
+      <label class="form-label">Title *</label>
+      <input class="form-input" id="kanbanTitle" placeholder="e.g., Implement login page">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <textarea class="form-textarea" id="kanbanDescription" rows="2" placeholder="Brief description"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select class="form-select" id="kanbanStatus">
+          <option value="triage">Triage</option>
+          <option value="todo">To Do</option>
+          <option value="ready">Ready</option>
+          <option value="in_progress">In Progress</option>
+          <option value="blocked">Blocked</option>
+          <option value="done">Done</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Priority</label>
+        <select class="form-select" id="kanbanPriority">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <select class="form-select" id="kanbanCategory">
+          <option value="general">General</option>
+          <option value="development">Development</option>
+          <option value="devops">DevOps</option>
+          <option value="study">Study</option>
+          <option value="content">Content</option>
+        </select>
       </div>
     </div>
-  `;
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Assigned To</label>
+        <input class="form-input" id="kanbanAssigned" placeholder="e.g., opencode" style="text-transform:lowercase">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Target Date</label>
+        <input class="form-input" id="kanbanDate" type="date">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tags (comma separated)</label>
+      <input class="form-input" id="kanbanTags" placeholder="e.g., frontend, api">
+    </div>
+  `, `
+    <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="createKanbanTask()">Add Task</button>
+  `);
 }
 
 async function createKanbanTask() {
@@ -209,35 +197,76 @@ async function onKanbanDrop(e, status) {
 function showKanbanDetail(id) {
   const task = kanbanData?.tasks?.find(t => t.id === id);
   if (!task) return;
-  const modal = document.getElementById('modalContainer');
-  modal.innerHTML = `
-    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
-      <div class="modal" style="max-width:560px">
-        <div class="modal-header">
-          <div class="modal-title">${escapeHtml(task.title)}</div>
-          <button class="modal-close" onclick="closeModal()">✕</button>
-        </div>
-        <div class="modal-body">
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-            <span class="badge badge-${task.status === 'done' ? 'success' : task.status === 'in_progress' ? 'info' : 'warning'}">${task.status}</span>
-            <span class="kanban-priority priority-${task.priority || 'medium'}">${task.priority}</span>
-            ${task.status === 'blocked' ? `<span class="badge badge-danger">🚫 Blocked</span>` : ''}
-          </div>
-          ${task.body ? `<div style="margin-bottom:12px;color:var(--text-secondary);font-size:13px">${escapeHtml(task.body)}</div>` : ''}
-          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px">
-            ${task.assignee ? `<span>👤 <strong>${escapeHtml(task.assignee)}</strong></span>` : ''}
-            <span>📅 <strong>${task.created || 'N/A'}</strong></span>
-            ${task.completed_at ? `<span>✅ <strong>${task.completed_at}</strong></span>` : ''}
-          </div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
-            ${task.status !== 'done' ? `<button class="btn btn-sm btn-primary" onclick="completeKanbanTask('${task.id}')">✅ Mark Done</button>` : ''}
-            ${task.status !== 'blocked' ? `<button class="btn btn-sm btn-ghost" onclick="blockKanbanTask('${task.id}')">🚫 Block</button>` : `<button class="btn btn-sm btn-ghost" onclick="unblockKanbanTask('${task.id}')">🔓 Unblock</button>`}
-            <button class="btn btn-sm btn-ghost" onclick="deleteKanbanTask('${task.id}')" style="color:var(--red)">🗑 Delete</button>
-          </div>
-        </div>
-      </div>
+  showModal(escapeHtml(task.title), `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <span class="badge badge-${task.status === 'done' ? 'success' : task.status === 'in_progress' ? 'info' : 'warning'}">${task.status}</span>
+      <span class="kanban-priority priority-${task.priority || 'medium'}">${task.priority}</span>
+      ${task.status === 'blocked' ? `<span class="badge badge-danger">🚫 Blocked</span>` : ''}
     </div>
-  `;
+    ${task.body ? `<div style="margin-bottom:12px;color:var(--text-secondary);font-size:13px">${escapeHtml(task.body)}</div>` : ''}
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px">
+      ${task.assignee ? `<span>👤 <strong>${escapeHtml(task.assignee)}</strong></span>` : ''}
+      <span>📅 <strong>${task.created || 'N/A'}</strong></span>
+      ${task.completed_at ? `<span>✅ <strong>${task.completed_at}</strong></span>` : ''}
+    </div>
+    ${task.spec ? `<details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12px;font-weight:600">📋 Spec</summary><pre style="white-space:pre-wrap;font-size:11px;background:var(--bg-secondary);padding:10px;border-radius:8px;max-height:30vh;overflow:auto">${escapeHtml(task.spec)}</pre></details>` : ''}
+    ${task.build_status ? `
+      <div style="margin-bottom:12px;padding:10px;background:var(--bg-secondary);border-radius:8px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">🔨 Build: <span style="color:${task.build_status === 'completed' ? 'var(--green)' : task.build_status === 'failed' ? 'var(--red)' : 'var(--accent)'}">${task.build_status}</span>${task.build_cost ? ` · $${task.build_cost}` : ''}</div>
+        ${(task.build_files || []).length ? `<div style="font-size:11px;color:var(--text-secondary)">${task.build_files.map(f => `<a href="#" onclick="event.preventDefault();previewBuildFile('${task.id}','${escapeHtml(f.path)}')" style="color:var(--accent);margin-right:10px">📄 ${escapeHtml(f.path)}</a>`).join('')}</div>` : ''}
+        ${task.build_output ? `<pre style="white-space:pre-wrap;font-size:11px;margin-top:8px;max-height:20vh;overflow:auto">${escapeHtml(task.build_output.slice(0, 800))}</pre>` : ''}
+      </div>` : ''}
+  `, `
+    ${task.status === 'triage' ? `<button class="btn btn-sm btn-primary" onclick="specifyTask('${task.id}')">📋 Specify</button>` : ''}
+    ${task.build_status !== 'running' ? `<button class="btn btn-sm" onclick="buildTask('${task.id}')">🔨 Build</button>` : `<button class="btn btn-sm" disabled>⏳ Building…</button>`}
+    ${task.status !== 'done' ? `<button class="btn btn-sm btn-primary" onclick="completeKanbanTask('${task.id}')">✅ Done</button>` : ''}
+    ${task.status !== 'blocked' ? `<button class="btn btn-sm btn-ghost" onclick="blockKanbanTask('${task.id}')">🚫 Block</button>` : `<button class="btn btn-sm btn-ghost" onclick="unblockKanbanTask('${task.id}')">🔓 Unblock</button>`}
+    <button class="btn btn-sm btn-ghost" onclick="deleteKanbanTask('${task.id}')" style="color:var(--red)">🗑</button>
+  `);
+}
+
+async function specifyTask(id) {
+  showToast('Drafting spec…', 'info');
+  try {
+    await api.specifyKanbanTask(id);
+    closeModal();
+    await renderKanban();
+    showKanbanDetail(id);
+    showToast('Spec drafted', 'success');
+  } catch (err) {
+    showToast('Specify failed: ' + err.message, 'error');
+  }
+}
+
+async function buildTask(id) {
+  showToast('Build started — Claude Code is working in a sandbox…', 'info');
+  try {
+    await api.buildKanbanTask(id);
+    closeModal();
+    // Poll until the build finishes, then reopen the detail
+    const poll = setInterval(async () => {
+      const t = await api.getKanbanTask(id);
+      if (t.build_status && t.build_status !== 'running') {
+        clearInterval(poll);
+        await renderKanban();
+        showKanbanDetail(id);
+        showToast(`Build ${t.build_status}`, t.build_status === 'completed' ? 'success' : 'error');
+      }
+    }, 2500);
+  } catch (err) {
+    showToast('Build failed: ' + err.message, 'error');
+  }
+}
+
+async function previewBuildFile(id, file) {
+  try {
+    const r = await api.previewKanbanBuild(id, file);
+    showModal(`📄 ${escapeHtml(file)}`, `
+      <pre style="white-space:pre-wrap;font-size:12px;max-height:60vh;overflow:auto;background:var(--bg-secondary);padding:12px;border-radius:8px">${escapeHtml(r.content)}</pre>
+    `, `<button class="btn btn-sm" onclick="showKanbanDetail('${id}')">← Back</button><button class="btn btn-sm btn-primary" onclick="closeModal()">Close</button>`);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 async function completeKanbanTask(id) {

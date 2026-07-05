@@ -50,8 +50,13 @@ const api = {
   updateSettings: (settings) => api.put('/api/settings', { settings }),
   getStandards: () => api.get('/api/standards'),
   discoverStandards: () => api.post('/api/standards/discover'),
-  chat: (agent, message, controller) => api.post('/api/chat', { agent, message }, controller),
+  chat: (agent, message, conversationId, controller) =>
+    api.post('/api/chat', { agent, message, conversation_id: conversationId || undefined }, controller),
   getChatHistory: () => api.get('/api/chat/history'),
+  getConversations: () => api.get('/api/conversations'),
+  createConversation: (title) => api.post('/api/conversations', { title }),
+  getConversation: (id) => api.get(`/api/conversations/${encodeURIComponent(id)}`),
+  deleteConversation: (id) => api.del(`/api/conversations/${encodeURIComponent(id)}`),
   // Kanban
   getKanbanBoard: (status) => api.get(status ? `/api/kanban/board?status=${encodeURIComponent(status)}` : '/api/kanban/board'),
   getKanbanTask: (id) => api.get(`/api/kanban/tasks/${encodeURIComponent(id)}`),
@@ -66,6 +71,8 @@ const api = {
   dispatchKanban: () => api.post('/api/kanban/dispatch', {}),
   specifyKanbanTask: (id) => api.post(`/api/kanban/tasks/${encodeURIComponent(id)}/specify`, {}),
   decomposeKanbanTask: (id) => api.post(`/api/kanban/tasks/${encodeURIComponent(id)}/decompose`, {}),
+  buildKanbanTask: (id) => api.post(`/api/kanban/tasks/${encodeURIComponent(id)}/build`, {}),
+  previewKanbanBuild: (id, file) => api.get(`/api/kanban/tasks/${encodeURIComponent(id)}/preview${file ? '?file=' + encodeURIComponent(file) : ''}`),
   // Goals
   getGoals: () => api.get('/api/goals'),
   createGoal: (data) => api.post('/api/goals', data),
@@ -104,6 +111,11 @@ const api = {
   // News Oracle
   getNewsTopics: (date) => api.get(`/api/news/topics${date ? '?date=' + encodeURIComponent(date) : ''}`),
   refreshNews: () => api.post('/api/news/refresh', {}),
+  // Orchestration
+  getRoles: () => api.get('/api/roles'),
+  startOrchestration: (goal, max_subtasks) => api.post('/api/orchestrate', { goal, max_subtasks }),
+  listOrchestrations: () => api.get('/api/orchestrate'),
+  getOrchestration: (id) => api.get(`/api/orchestrate/${encodeURIComponent(id)}`),
   // Artifact Library
   getArtifacts: (params = {}) => {
     const qs = Object.entries(params)

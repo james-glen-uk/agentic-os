@@ -91,22 +91,22 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
 
 ## Phase 3 — Orchestration, Media, Voice (PRD Epics E, F, G) `P1`
 
-- [ ] **3.1 Role definitions + orchestrator API** *(E1)*
+- [x] **3.1 Role definitions + orchestrator API** *(E1)*
   Files: new `agents/roles/*.md` (ceo, cto, researcher, builder, reviewer), `server.py` (new `POST /api/orchestrate`), reuse kanban `decompose` (1182–1209) + `/api/kanban/links`
   Goal → CEO decomposition → linked subtasks with role/agent assignment → execution via fallback chains (builder ⇒ claude primary) → aggregated result artifact. Guardrails: max depth, max calls, max spend per run (settings).
   **Done when:** test goal produces linked kanban subtasks, runs to aggregated artifact, respects caps.
 
-- [ ] **3.2 Org-chart page** *(E1)*
+- [x] **3.2 Org-chart page** *(E1)*
   Files: new `dashboard/pages/orchestration.js`, nav wiring
   Roles with live assignment/status, per-run drill-down into subtask outputs.
   **Done when:** an orchestration run is watchable live in the UI.
 
-- [ ] **3.3 Idea→Spec→Build→Preview pipeline** *(E2)*
+- [x] **3.3 Idea→Spec→Build→Preview pipeline** *(E2)*
   Files: `server.py` (extend kanban `specify` 1170–1180; new build endpoint), new `workspace/` sandbox convention, `dashboard/pages/kanban.js` (pipeline actions), preview pane page
   Build = Claude Code headless in `workspace/<task-id>/` only; logs stored per task (browsable like `session-replay.js`); preview renders produced files/static output.
   **Done when:** idea card → editable AI spec → sandboxed build → preview in dashboard; write-outside-sandbox attempt fails a test.
 
-- [ ] **3.4 Image generation workflow** *(F1)*
+- [x] **3.4 Image generation workflow** *(F1)*
   Files: new `skills/image-gen/`, new `server.py` media adapter (provider from settings, Gemini image first), artifacts page image preview
   **Done when:** prompt + style preset → image file in library; unconfigured provider shows graceful setup message.
 
@@ -114,7 +114,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Files: same adapter interface as 3.4; providers configurable; audio/video previews in artifacts page
   **Done when:** with a configured provider, track/video lands in library; without, clean "not configured" state. (Defer to P2 if no provider access.)
 
-- [ ] **3.6 Voice push-to-talk** *(G1)*
+- [x] **3.6 Voice push-to-talk** *(G1)*
   Files: `dashboard/index.html` (mic button), new `dashboard/voice.js` (Web Speech API), `server.py` (route transcript via `/api/router/suggest` → skill + confirm)
   Confirmation chip before any run; unmatched commands ask, never guess. Update README to reflect real (not phantom) voice support.
   **Done when:** spoken "run the news oracle" in Chrome/Edge triggers the right skill after confirmation.

@@ -74,12 +74,32 @@ async function loadArtifacts() {
           <span class="badge" style="opacity:.7">${escapeHtml(a.agent || '')}</span>
           ${(a.tags || []).map(t => `<span class="badge" style="background:var(--accent-dim)">${escapeHtml(t)}</span>`).join('')}
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">${escapeHtml(a.preview || '')}</p>
+        ${a.type === 'image'
+          ? `<img src="/api/artifacts/${a.id}/raw" alt="${escapeHtml(a.title)}" style="width:100%;border-radius:8px;max-height:160px;object-fit:cover" loading="lazy">`
+          : `<p style="font-size:12px;color:var(--text-secondary);margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">${escapeHtml(a.preview || '')}</p>`}
         <div style="font-size:11px;color:var(--text-muted)">${(a.created || '').slice(0, 16).replace('T', ' ')}${a.source_topic ? ' · 📰 ' + escapeHtml(a.source_topic) : ''}</div>
       </div>
     `).join('');
   } catch (err) {
     grid.innerHTML = `<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-state-icon">⚠</div><div class="empty-state-title">${escapeHtml(err.message)}</div></div></div>`;
+  }
+}
+
+async function loadArtifactsSubmenu() {
+  const list = document.getElementById('secondaryList');
+  if (!list) return;
+  list.innerHTML = renderSkeleton(3);
+  try {
+    const data = await api.getArtifacts({});
+    const artifacts = (data.artifacts || []).slice(0, 20);
+    list.innerHTML = artifacts.length ? artifacts.map(a => `
+      <div class="secondary-item" onclick="openArtifact('${a.id}')">
+        <div class="secondary-item-title">${escapeHtml(a.title)}</div>
+        <div class="secondary-item-meta mono">#${a.id} · ${escapeHtml(a.skill)}</div>
+      </div>
+    `).join('') : `<div class="empty-state-desc">No artifacts yet</div>`;
+  } catch {
+    list.innerHTML = `<div class="empty-state-desc">Failed to load artifacts</div>`;
   }
 }
 
@@ -96,7 +116,9 @@ async function openArtifact(id) {
         <label class="form-label">Tags (comma-separated)</label>
         <input id="artTagsInput" class="form-input" value="${escapeHtml((a.tags || []).join(', '))}">
       </div>
-      <pre style="white-space:pre-wrap;font-size:12px;max-height:45vh;overflow:auto;background:var(--bg-secondary);padding:12px;border-radius:8px">${escapeHtml(a.content || '')}</pre>
+      ${a.type === 'image'
+        ? `<img src="/api/artifacts/${a.id}/raw" alt="${escapeHtml(a.title)}" style="width:100%;border-radius:8px;max-height:55vh;object-fit:contain;background:var(--bg-secondary)">`
+        : `<pre style="white-space:pre-wrap;font-size:12px;max-height:45vh;overflow:auto;background:var(--bg-secondary);padding:12px;border-radius:8px">${escapeHtml(a.content || '')}</pre>`}
     `, `
       <button class="btn" onclick="saveArtifactTags('${a.id}')">💾 Save Tags</button>
       <button class="btn btn-danger" onclick="deleteArtifactConfirm('${a.id}')">🗑 Delete</button>

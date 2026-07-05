@@ -130,6 +130,10 @@ class BackupRestoreRequest(BaseModel):
 class ChatRequest(BaseModel):
     agent: str
     message: str
+    conversation_id: Optional[str] = None
+
+class ConversationCreate(BaseModel):
+    title: Optional[str] = "New chat"
 
 # ─── Helper Functions ─────────────────────────────────────────────
 
@@ -141,6 +145,25 @@ def read_file(path: Path):
 def write_file(path: Path, content: str):
     path.write_text(content, encoding="utf-8")
     return True
+
+def atomic_write_json(path: Path, obj) -> None:
+    """Write JSON via a temp file + os.replace so concurrent readers never
+    see a truncated/empty file (background threads write while the UI reads).
+
+    On Windows os.replace raises PermissionError if a reader momentarily holds
+    the destination open, so retry briefly on that transient sharing violation."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + f".tmp-{uuid.uuid4().hex[:8]}")
+    tmp.write_text(json.dumps(obj, indent=2), encoding="utf-8")
+    for attempt in range(10):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 9:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.02)
 
 def list_dir(path: Path):
     if not path.exists():
@@ -566,7 +589,14 @@ def get_audit(limit: int = Query(100, le=500)):
     if not audit_file.exists():
         return {"entries": []}
     lines = audit_file.read_text(encoding="utf-8").strip().split("\n")
-    entries = [json.loads(l) for l in lines if l.strip()]
+    entries = []
+    for l in lines:
+        if not l.strip():
+            continue
+        try:
+            entries.append(json.loads(l))
+        except json.JSONDecodeError:
+            continue
     return {"entries": entries[-limit:]}
 
 # ─── Routes: Cost Analytics ───────────────────────────────────────
@@ -913,8 +943,11 @@ def discover_standards():
 # ─── Routes: Chat ─────────────────────────────────────────────────
 
 CHAT_HISTORY_FILE = BASE_DIR / "data" / "chat-history.json"
+CONVERSATIONS_FILE = BASE_DIR / "data" / "conversations.json"
+MAX_MESSAGES_PER_CONVERSATION = 200
+MAX_CONVERSATIONS = 100
 
-def load_chat_history():
+def load_legacy_chat_history():
     if not CHAT_HISTORY_FILE.exists():
         return {"messages": []}
     try:
@@ -925,16 +958,80 @@ def load_chat_history():
         pass
     return {"messages": []}
 
-def save_chat_message(msg: dict):
-    history = load_chat_history()
-    history.setdefault("messages", []).append(msg)
-    if len(history["messages"]) > 200:
-        history["messages"] = history["messages"][-200:]
-    CHAT_HISTORY_FILE.write_text(json.dumps(history, indent=2), encoding="utf-8")
+def load_conversations() -> dict:
+    if not CONVERSATIONS_FILE.exists():
+        return {"conversations": []}
+    try:
+        data = json.loads(CONVERSATIONS_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and "conversations" in data:
+            return data
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return {"conversations": []}
+
+def save_conversations(data: dict):
+    CONVERSATIONS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+def get_conversation(conv_id: str, data: Optional[dict] = None) -> Optional[dict]:
+    data = data or load_conversations()
+    return next((c for c in data["conversations"] if c["id"] == conv_id), None)
+
+def create_conversation(title: str = "New chat") -> dict:
+    data = load_conversations()
+    conv = {"id": str(uuid.uuid4())[:8], "title": title or "New chat",
+            "created": get_timestamp(), "updated": get_timestamp(), "messages": []}
+    data["conversations"].insert(0, conv)
+    data["conversations"] = data["conversations"][:MAX_CONVERSATIONS]
+    save_conversations(data)
+    return conv
+
+def append_conversation_message(conv_id: str, msg: dict) -> dict:
+    data = load_conversations()
+    conv = get_conversation(conv_id, data)
+    if conv is None:
+        conv = {"id": conv_id, "title": "New chat",
+                "created": get_timestamp(), "updated": get_timestamp(), "messages": []}
+        data["conversations"].insert(0, conv)
+    conv["messages"].append(msg)
+    conv["messages"] = conv["messages"][-MAX_MESSAGES_PER_CONVERSATION:]
+    conv["updated"] = get_timestamp()
+    if conv["title"] in ("New chat", "") and msg["role"] == "user":
+        conv["title"] = msg["content"][:40] + ("…" if len(msg["content"]) > 40 else "")
+    save_conversations(data)
+    return conv
+
+def delete_conversation(conv_id: str) -> bool:
+    data = load_conversations()
+    before = len(data["conversations"])
+    data["conversations"] = [c for c in data["conversations"] if c["id"] != conv_id]
+    save_conversations(data)
+    return len(data["conversations"]) < before
+
+def migrate_legacy_chat_history():
+    """One-time import of the old single-thread chat-history.json into
+    conversations.json, run at module load. Idempotent: skipped once
+    conversations.json exists or the legacy file has already been renamed."""
+    migrated_marker = CHAT_HISTORY_FILE.with_suffix(".json.migrated")
+    if CONVERSATIONS_FILE.exists() or migrated_marker.exists() or not CHAT_HISTORY_FILE.exists():
+        return
+    legacy = load_legacy_chat_history()
+    if legacy.get("messages"):
+        conv = {"id": str(uuid.uuid4())[:8], "title": "Imported conversation",
+                "created": get_timestamp(), "updated": get_timestamp(),
+                "messages": legacy["messages"]}
+        save_conversations({"conversations": [conv]})
+    try:
+        CHAT_HISTORY_FILE.rename(migrated_marker)
+    except OSError:
+        pass
+
+migrate_legacy_chat_history()
 
 def run_cli(args: list, timeout: int = 30) -> tuple:
+    # stdin=DEVNULL: headless CLIs (esp. `claude -p`) otherwise inherit the
+    # server's stdin and block ~3s waiting for input, polluting output.
     r = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
-                       encoding="utf-8", errors="replace")
+                       encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
     return r.returncode, r.stdout, r.stderr
 
 def clean_hermes_output(raw: str) -> str:
@@ -1207,6 +1304,25 @@ def save_artifact(skill: str, agent: str, content: str, title: str = "",
         log.debug("artifact FTS indexing unavailable", exc_info=True)
     return meta
 
+def save_binary_artifact(skill: str, agent: str, data: bytes, ext: str,
+                         artifact_type: str = "image", title: str = "",
+                         source_topic: str = "", mime: str = "application/octet-stream") -> dict:
+    """Persist a binary artifact (image/audio/video). Content isn't FTS-indexed."""
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    art_id = str(uuid.uuid4())[:8]
+    content_file = f"{art_id}.{ext.lstrip('.')}"
+    (ARTIFACTS_DIR / content_file).write_bytes(data)
+    meta = {
+        "id": art_id,
+        "title": title or f"{skill} — {get_timestamp()[:10]}",
+        "skill": skill, "agent": agent, "type": artifact_type,
+        "tags": [], "bookmarked": False, "source_topic": source_topic,
+        "content_file": content_file, "mime": mime,
+        "created": get_timestamp(), "size": len(data),
+    }
+    atomic_write_json(ARTIFACTS_DIR / f"{art_id}.meta.json", meta)
+    return meta
+
 def _artifact_meta_path(art_id: str) -> Path:
     if not _ARTIFACT_ID_RE.match(art_id or ""):
         raise HTTPException(400, "Invalid artifact id")
@@ -1246,11 +1362,26 @@ def list_artifacts(skill: str = "", tag: str = "", bookmarked: Optional[bool] = 
             break
     return {"artifacts": items, "total": len(items)}
 
+_BINARY_ARTIFACT_TYPES = {"image", "audio", "video"}
+
 @app.get("/api/artifacts/{art_id}")
 def get_artifact(art_id: str):
     meta = json.loads(_artifact_meta_path(art_id).read_text(encoding="utf-8-sig"))
-    meta["content"] = _artifact_content(meta)
+    if meta.get("type") in _BINARY_ARTIFACT_TYPES:
+        meta["content"] = ""  # binary — fetch via /raw
+        meta["raw_url"] = f"/api/artifacts/{art_id}/raw"
+    else:
+        meta["content"] = _artifact_content(meta)
     return meta
+
+@app.get("/api/artifacts/{art_id}/raw")
+def get_artifact_raw(art_id: str):
+    meta = json.loads(_artifact_meta_path(art_id).read_text(encoding="utf-8-sig"))
+    f = ARTIFACTS_DIR / meta.get("content_file", "")
+    if not f.is_file():
+        raise HTTPException(404, "Content file missing")
+    return Response(content=f.read_bytes(),
+                    media_type=meta.get("mime", "application/octet-stream"))
 
 @app.patch("/api/artifacts/{art_id}")
 def update_artifact(art_id: str, data: ArtifactUpdate):
@@ -1274,6 +1405,84 @@ def delete_artifact(art_id: str):
     p.unlink()
     append_audit({"action": "artifact_deleted", "id": art_id})
     return {"status": "deleted", "id": art_id}
+
+# ─── Media Generation (pluggable provider adapter) ────────────────
+# One interface, provider chosen in settings.media.image_provider. Ships
+# unconfigured — image generation needs a provider + key, so the default
+# path returns a clear setup message rather than failing opaquely.
+
+class ImageGenRequest(BaseModel):
+    prompt: str
+    preset: Optional[str] = ""
+
+IMAGE_STYLE_PRESETS = {
+    "": "",
+    "photo": "photorealistic, sharp focus, natural lighting",
+    "illustration": "clean vector illustration, flat colors",
+    "3d": "3D render, soft studio lighting, subtle shadows",
+    "pixel": "16-bit pixel art, limited palette",
+}
+
+def generate_image(prompt: str, preset: str = "") -> dict:
+    """Provider adapter. Returns {ok, data(bytes), mime, ext} or
+    {ok:False, configured, error}. Real providers are called only when a
+    key is present; otherwise a graceful unconfigured result is returned."""
+    settings = load_settings()
+    provider = (settings.get("media", {}) or {}).get("image_provider", "")
+    keys = settings.get("api_keys", {}) or {}
+    styled = f"{prompt}. {IMAGE_STYLE_PRESETS.get(preset, '')}".strip().rstrip(".")
+
+    if not provider:
+        return {"ok": False, "configured": False,
+                "error": "No image provider configured. Set media.image_provider "
+                         "(e.g. \"gemini\") and the matching API key in Settings."}
+    if provider == "gemini":
+        api_key = keys.get("gemini", "")
+        if not api_key:
+            return {"ok": False, "configured": False,
+                    "error": "Gemini image provider selected but api_keys.gemini is not set."}
+        try:
+            import base64, urllib.request
+            url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+                   "gemini-2.5-flash-image:generateContent?key=" + api_key)
+            body = json.dumps({"contents": [{"parts": [{"text": styled}]}]}).encode()
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read())
+            for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+                inline = part.get("inlineData") or part.get("inline_data")
+                if inline and inline.get("data"):
+                    return {"ok": True, "data": base64.b64decode(inline["data"]),
+                            "mime": inline.get("mimeType", "image/png"), "ext": "png"}
+            return {"ok": False, "configured": True, "error": "Provider returned no image data."}
+        except Exception as e:
+            return {"ok": False, "configured": True, "error": f"Gemini image request failed: {e}"}
+    return {"ok": False, "configured": False, "error": f"Unknown image provider: {provider}"}
+
+@app.post("/api/media/image")
+def media_generate_image(req: ImageGenRequest):
+    prompt = (req.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(400, "Prompt cannot be empty")
+    result = generate_image(prompt, req.preset or "")
+    if not result["ok"]:
+        # Not an error the caller did wrong — surface setup guidance clearly.
+        return {"status": "unconfigured" if not result.get("configured") else "failed",
+                "message": result["error"]}
+    art = save_binary_artifact(
+        skill="image-gen", agent=f"media:{load_settings().get('media', {}).get('image_provider', '')}",
+        data=result["data"], ext=result["ext"], artifact_type="image",
+        title=prompt[:60], source_topic=prompt, mime=result["mime"])
+    append_audit({"action": "image_generated", "artifact_id": art["id"], "prompt": prompt[:60]})
+    return {"status": "completed", "artifact_id": art["id"],
+            "raw_url": f"/api/artifacts/{art['id']}/raw"}
+
+@app.get("/api/media/presets")
+def media_presets():
+    settings = load_settings()
+    provider = (settings.get("media", {}) or {}).get("image_provider", "")
+    return {"presets": list(IMAGE_STYLE_PRESETS.keys()), "provider": provider,
+            "configured": bool(provider)}
 
 # ─── Fallback Chain Engine ────────────────────────────────────────
 # execute_agent() reports failures as human-readable strings (v0.3.0
@@ -1372,6 +1581,248 @@ def execute_with_fallback(chain: list, message: str) -> dict:
               details={"attempts": attempts})
     return {"agent": None, "output": summary, "attempts": attempts, "fallback_used": True}
 
+# ─── Multi-Agent Orchestration ────────────────────────────────────
+# A goal → CEO decomposition → role-assigned subtasks (kanban) → each
+# executed via a fallback chain → CEO aggregation → final artifact.
+# Runs in a background thread; the UI polls the run record.
+
+ORCHESTRATION_DIR = BASE_DIR / "data" / "orchestrations"
+VALID_ROLES = ["ceo", "cto", "researcher", "builder", "reviewer"]
+_ID8_RE = re.compile(r"^[0-9a-f]{8}$")
+
+class OrchestrateRequest(BaseModel):
+    goal: str
+    max_subtasks: Optional[int] = None
+
+def load_role(role: str) -> dict:
+    """Role persona + its primary agent (from the `Primary:` line)."""
+    p = BASE_DIR / "agents" / "roles" / f"{role}.md"
+    persona, primary = "", "claude"
+    if p.exists():
+        persona = p.read_text(encoding="utf-8")
+        for line in persona.splitlines():
+            if line.strip().lower().startswith("primary:"):
+                cand = line.split(":", 1)[1].strip().lower()
+                if cand in KNOWN_AGENTS:
+                    primary = cand
+    return {"persona": persona, "primary": primary}
+
+def list_roles() -> list:
+    roles = []
+    for name in VALID_ROLES:
+        r = load_role(name)
+        first_para = next((ln.strip() for ln in r["persona"].splitlines()
+                           if ln.strip() and not ln.startswith("#") and ":" not in ln[:10]), "")
+        roles.append({"name": name, "primary": r["primary"], "summary": first_para[:160]})
+    return roles
+
+def _save_orchestration(run: dict):
+    run["updated"] = get_timestamp()
+    atomic_write_json(ORCHESTRATION_DIR / f"{run['id']}.json", run)
+
+def _load_orchestration(run_id: str) -> dict:
+    p = ORCHESTRATION_DIR / f"{run_id}.json"
+    return json.loads(p.read_text(encoding="utf-8-sig"))
+
+def _total_claude_spend() -> float:
+    cost_file = BASE_DIR / "data" / "cost-history.json"
+    if not cost_file.exists():
+        return 0.0
+    try:
+        data = json.loads(cost_file.read_text(encoding="utf-8-sig"))
+        return sum(float(e.get("cost", 0) or 0) for e in data.get("entries", []))
+    except Exception:
+        return 0.0
+
+def _run_role_task(role: str, title: str, description: str, context: str = "") -> dict:
+    r = load_role(role)
+    prompt = f"{r['persona']}\n\n## Your task: {title}\n\n{description}"
+    if context:
+        prompt += f"\n\n## Context from earlier steps\n{context}"
+    chain = resolve_agent_chain("auto", primary=r["primary"])
+    return execute_with_fallback(chain, prompt)
+
+def _orchestrator_plan(goal: str, max_subtasks: int) -> dict:
+    ceo = load_role("ceo")
+    prompt = (
+        ceo["persona"]
+        + f"\n\n## Goal\n{goal}\n\n## Instruction\n"
+        + f"Decompose this goal into at most {max_subtasks} subtasks. Reply with ONLY a "
+        + 'JSON array; each element {"role": "researcher|cto|builder|reviewer", '
+        + '"title": "short title", "description": "what to do"}. No prose, no code fences.'
+    )
+    chain = resolve_agent_chain("auto", primary=ceo["primary"])
+    result = execute_with_fallback(chain, prompt)
+    plan = []
+    if result["agent"]:
+        match = re.search(r"\[.*\]", result["output"], re.DOTALL)
+        if match:
+            try:
+                for item in json.loads(match.group(0))[:max_subtasks]:
+                    role = str(item.get("role", "builder")).lower()
+                    plan.append({
+                        "role": role if role in VALID_ROLES else "builder",
+                        "title": str(item.get("title", "")).strip()[:80] or "Subtask",
+                        "description": str(item.get("description", "")).strip(),
+                    })
+            except Exception:
+                log.warning("orchestrator plan JSON parse failed", exc_info=True)
+    if not plan:
+        plan = [{"role": "builder", "title": goal[:80], "description": goal}]
+    return {"plan": plan, "result": result}
+
+def _run_orchestration(run_id: str):
+    run = _load_orchestration(run_id)
+    try:
+        spend_start = _total_claude_spend()
+        caps = run["caps"]
+
+        planned = _orchestrator_plan(run["goal"], caps["max_subtasks"])
+        run["calls_made"] += 1
+
+        parent = {
+            "id": str(uuid.uuid4())[:8], "title": f"🎯 {run['goal'][:70]}",
+            "body": run["goal"], "status": "in_progress", "priority": "high",
+            "assignee": "ceo", "comments": [], "links": [],
+            "created": get_timestamp(), "updated": get_timestamp(),
+        }
+        save_kanban_task(parent)
+        run["parent_task_id"] = parent["id"]
+
+        for item in planned["plan"]:
+            child_id = str(uuid.uuid4())[:8]
+            child = {
+                "id": child_id, "title": item["title"], "body": item["description"],
+                "status": "todo", "priority": "medium", "assignee": item["role"],
+                "comments": [], "links": [{"parent": parent["id"], "child": child_id}],
+                "created": get_timestamp(), "updated": get_timestamp(),
+            }
+            save_kanban_task(child)
+            parent["links"].append({"parent": parent["id"], "child": child_id})
+            run["subtasks"].append({
+                "id": child_id, "role": item["role"], "agent": None,
+                "title": item["title"], "description": item["description"],
+                "status": "pending", "kanban_id": child_id,
+                "output_preview": "", "artifact_id": None,
+            })
+        save_kanban_task(parent)
+        run["status"] = "running"
+        _save_orchestration(run)
+
+        context_parts = []
+        for st in run["subtasks"]:
+            if run["calls_made"] >= caps["max_agent_calls"]:
+                st["status"] = "skipped"
+                continue
+            if (_total_claude_spend() - spend_start) >= caps["max_spend_usd"]:
+                st["status"] = "skipped"
+                continue
+            st["status"] = "running"
+            _mark_kanban_status(st["kanban_id"], "in_progress")
+            _save_orchestration(run)
+
+            result = _run_role_task(st["role"], st["title"], st["description"],
+                                    "\n\n".join(context_parts))
+            run["calls_made"] += 1
+            st["agent"] = result["agent"]
+            if result["agent"]:
+                st["status"] = "done"
+                st["output_preview"] = result["output"][:200]
+                art = save_artifact(skill=f"orchestrate:{st['role']}", agent=result["agent"],
+                                    content=result["output"], title=st["title"],
+                                    source_topic=run["goal"])
+                st["artifact_id"] = art["id"]
+                context_parts.append(f"### {st['role']} — {st['title']}\n{result['output']}")
+                _mark_kanban_status(st["kanban_id"], "done")
+            else:
+                st["status"] = "failed"
+                _mark_kanban_status(st["kanban_id"], "blocked")
+            _save_orchestration(run)
+
+        ceo = load_role("ceo")
+        agg_prompt = (
+            ceo["persona"] + f"\n\n## Original goal\n{run['goal']}\n\n"
+            + f"## Subtask outputs\n{chr(10).join(context_parts) or '(no subtasks completed)'}\n\n"
+            + "## Instruction\nSynthesize the above into one final deliverable that "
+            + "answers the goal. Lead with the answer."
+        )
+        chain = resolve_agent_chain("auto", primary=ceo["primary"])
+        agg = execute_with_fallback(chain, agg_prompt)
+        run["calls_made"] += 1
+
+        art = save_artifact(skill="orchestrate:ceo", agent=agg["agent"] or "none",
+                            content=agg["output"], title=f"Orchestration: {run['goal'][:60]}",
+                            source_topic=run["goal"])
+        run["artifact_id"] = art["id"]
+        run["spend_usd"] = round(_total_claude_spend() - spend_start, 4)
+        run["status"] = "completed" if agg["agent"] else "failed"
+        _mark_kanban_status(parent["id"], "done")
+        _save_orchestration(run)
+        append_audit({"action": "orchestration_completed", "run_id": run_id,
+                      "subtasks": len(run["subtasks"]), "calls": run["calls_made"]})
+    except Exception as e:
+        run["status"] = "failed"
+        run["error"] = str(e)
+        _save_orchestration(run)
+        log_error("orchestrator", str(e), category="system")
+
+def _mark_kanban_status(task_id: str, status: str):
+    path = KANBAN_DIR / f"{task_id}.json"
+    if path.exists():
+        t = json.loads(path.read_text(encoding="utf-8"))
+        t["status"] = status
+        t["updated"] = get_timestamp()
+        save_kanban_task(t)
+
+@app.get("/api/roles")
+def get_roles():
+    return {"roles": list_roles()}
+
+@app.post("/api/orchestrate")
+def orchestrate(data: OrchestrateRequest):
+    goal = (data.goal or "").strip()
+    if not goal:
+        raise HTTPException(400, "Goal cannot be empty")
+    if len(goal) > 2000:
+        raise HTTPException(400, "Goal too long (max 2000 characters)")
+    cfg = load_settings().get("orchestration", {})
+    caps = {
+        "max_subtasks": max(1, min(int(data.max_subtasks or cfg.get("max_subtasks", 5)), 8)),
+        "max_agent_calls": int(cfg.get("max_agent_calls", 12)),
+        "max_spend_usd": float(cfg.get("max_spend_usd", 1.0)),
+    }
+    run = {
+        "id": str(uuid.uuid4())[:8], "goal": goal, "status": "planning",
+        "created": get_timestamp(), "updated": get_timestamp(),
+        "parent_task_id": None, "caps": caps, "calls_made": 0,
+        "spend_usd": 0.0, "subtasks": [], "artifact_id": None, "error": None,
+    }
+    _save_orchestration(run)
+    append_audit({"action": "orchestration_started", "run_id": run["id"], "goal": goal[:60]})
+    threading.Thread(target=_run_orchestration, args=(run["id"],), daemon=True).start()
+    return run
+
+@app.get("/api/orchestrate")
+def list_orchestrations(limit: int = Query(20, le=100)):
+    if not ORCHESTRATION_DIR.exists():
+        return {"runs": []}
+    runs = []
+    for f in sorted(ORCHESTRATION_DIR.glob("*.json"), reverse=True)[:limit]:
+        try:
+            runs.append(json.loads(f.read_text(encoding="utf-8-sig")))
+        except Exception:
+            continue
+    return {"runs": runs}
+
+@app.get("/api/orchestrate/{run_id}")
+def get_orchestration(run_id: str):
+    if not _ID8_RE.match(run_id):
+        raise HTTPException(400, "Invalid run id")
+    p = ORCHESTRATION_DIR / f"{run_id}.json"
+    if not p.exists():
+        raise HTTPException(404, "Orchestration run not found")
+    return _load_orchestration(run_id)
+
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     agent = req.agent.lower().strip()
@@ -1383,6 +1834,10 @@ def chat(req: ChatRequest):
     if len(message) > 10000:
         raise HTTPException(400, "Message too long (max 10000 characters)")
 
+    conv_id = req.conversation_id
+    if not conv_id:
+        conv_id = create_conversation(title=message[:40])["id"]
+
     user_msg = {
         "id": str(uuid.uuid4())[:8],
         "role": "user",
@@ -1390,7 +1845,7 @@ def chat(req: ChatRequest):
         "content": message,
         "timestamp": get_timestamp(),
     }
-    save_chat_message(user_msg)
+    append_conversation_message(conv_id, user_msg)
 
     chain = resolve_agent_chain(agent, primary=_suggest_agent(message) if agent == "auto" else "")
     result = execute_with_fallback(chain, message)
@@ -1403,17 +1858,53 @@ def chat(req: ChatRequest):
         "content": result["output"],
         "timestamp": get_timestamp(),
     }
-    save_chat_message(agent_msg)
+    append_conversation_message(conv_id, agent_msg)
 
     append_audit({"action": "chat_message", "agent": agent_used,
-                  "requested": agent, "msg_preview": message[:50]})
+                  "requested": agent, "conversation_id": conv_id, "msg_preview": message[:50]})
 
-    return {"status": "ok", "response": agent_msg,
+    return {"status": "ok", "response": agent_msg, "conversation_id": conv_id,
             "attempts": result["attempts"], "fallback_used": result["fallback_used"]}
 
 @app.get("/api/chat/history")
 def get_chat_history():
-    return load_chat_history()
+    """Backward-compat: returns the most-recently-updated conversation's
+    messages in the old flat {"messages": [...]} shape."""
+    data = load_conversations()
+    if not data["conversations"]:
+        return {"messages": []}
+    latest = max(data["conversations"], key=lambda c: c["updated"])
+    return {"messages": latest["messages"]}
+
+@app.get("/api/conversations")
+def list_conversations():
+    data = load_conversations()
+    convs = sorted(data["conversations"], key=lambda c: c["updated"], reverse=True)
+    return {"conversations": [
+        {"id": c["id"], "title": c["title"], "updated": c["updated"], "created": c["created"],
+         "message_count": len(c["messages"])} for c in convs
+    ]}
+
+@app.post("/api/conversations")
+def new_conversation(req: ConversationCreate):
+    conv = create_conversation(req.title or "New chat")
+    append_audit({"action": "conversation_created", "id": conv["id"]})
+    return conv
+
+@app.get("/api/conversations/{conv_id}")
+def get_conversation_route(conv_id: str):
+    conv = get_conversation(conv_id)
+    if conv is None:
+        raise HTTPException(404, "Conversation not found")
+    return conv
+
+@app.delete("/api/conversations/{conv_id}")
+def delete_conversation_route(conv_id: str):
+    ok = delete_conversation(conv_id)
+    if not ok:
+        raise HTTPException(404, "Conversation not found")
+    append_audit({"action": "conversation_deleted", "id": conv_id})
+    return {"status": "ok"}
 
 # ═══════════════════════════════════════════════════════════════════
 # v0.2.0 — New Feature Endpoints
@@ -1490,7 +1981,7 @@ def load_kanban_tasks():
 
 def save_kanban_task(task: dict):
     ensure_dir(KANBAN_DIR)
-    (KANBAN_DIR / f"{task['id']}.json").write_text(json.dumps(task, indent=2), encoding="utf-8")
+    atomic_write_json(KANBAN_DIR / f"{task['id']}.json", task)
 
 def load_goals():
     if GOALS_FILE.exists():
@@ -1651,15 +2142,129 @@ def kanban_dispatch():
 
 @app.post("/api/kanban/tasks/{task_id}/specify")
 def kanban_specify_task(task_id: str):
+    """Idea → Spec: draft an actionable spec from the idea (CTO role), store
+    it on the task, and advance triage → todo. The spec is human-editable."""
     path = KANBAN_DIR / f"{task_id}.json"
     if not path.exists():
         raise HTTPException(404, "Task not found")
     task = json.loads(path.read_text(encoding="utf-8"))
+    idea = f"{task.get('title', '')}\n\n{task.get('body', '')}".strip()
+    result = _run_role_task(
+        "cto", f"Write a concrete build spec for: {task.get('title', '')}",
+        "Produce a short, actionable technical spec a builder can execute without "
+        f"further questions — files to create, key behavior, and acceptance criteria.\n\nIdea:\n{idea}",
+    )
+    if result["agent"]:
+        task["spec"] = result["output"]
     if task.get("status") == "triage":
         task["status"] = "todo"
-        task["updated"] = get_timestamp()
-        save_kanban_task(task)
+    task["updated"] = get_timestamp()
+    save_kanban_task(task)
     return task
+
+# ─── Idea → Spec → Build → Preview (sandboxed Claude Code builds) ──
+
+WORKSPACE_DIR = BASE_DIR / "workspace"
+
+def _sandbox_for(task_id: str) -> Path:
+    if not _ID8_RE.match(task_id or ""):
+        raise HTTPException(400, "Invalid task id")
+    return (WORKSPACE_DIR / task_id).resolve()
+
+def _sandbox_files(sandbox: Path) -> list:
+    files = []
+    if sandbox.exists():
+        for f in sorted(sandbox.rglob("*")):
+            if f.is_file():
+                files.append({"path": str(f.relative_to(sandbox)).replace("\\", "/"),
+                              "size": f.stat().st_size})
+    return files
+
+def _run_build_agent(sandbox: Path, prompt: str) -> dict:
+    """Run Claude Code headless with cwd pinned to the sandbox. Auto-accepts
+    file edits so the build can write, confined to the workspace dir."""
+    cfg = load_agent_config("claude")
+    cmd = ["claude", "-p", prompt, "--output-format", "json",
+           "--permission-mode", "acceptEdits",
+           "--max-turns", str(cfg.get("build_max_turns", 20))]
+    if cfg.get("model"):
+        cmd += ["--model", cfg["model"]]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=cfg.get("build_timeout", 600),
+                           cwd=str(sandbox), stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "output": "⏱ Build timed out.", "cost": 0.0}
+    except FileNotFoundError:
+        return {"ok": False, "output": "⚠ Claude Code CLI not installed.", "cost": 0.0}
+    if r.returncode == 0:
+        try:
+            data = json.loads(r.stdout or "{}")
+            return {"ok": True, "output": (data.get("result") or "").strip(),
+                    "cost": float(data.get("total_cost_usd", 0) or 0)}
+        except json.JSONDecodeError:
+            return {"ok": True, "output": (r.stdout or "").strip(), "cost": 0.0}
+    return {"ok": False, "output": (r.stderr or "").strip() or f"claude exit {r.returncode}", "cost": 0.0}
+
+def _run_build(task_id: str):
+    path = KANBAN_DIR / f"{task_id}.json"
+    task = json.loads(path.read_text(encoding="utf-8"))
+    sandbox = _sandbox_for(task_id)
+    sandbox.mkdir(parents=True, exist_ok=True)
+    spec = task.get("spec") or task.get("body") or task.get("title", "")
+    prompt = (
+        "You are building inside an isolated workspace directory (your current "
+        "working directory). Create all files here using relative paths only; do "
+        "not write outside this directory. Implement the following spec fully — no "
+        f"placeholders.\n\n## Spec\n{spec}"
+    )
+    result = _run_build_agent(sandbox, prompt)
+    task = json.loads((KANBAN_DIR / f"{task_id}.json").read_text(encoding="utf-8"))
+    task["build_status"] = "completed" if result["ok"] else "failed"
+    task["build_output"] = result["output"][:4000]
+    task["build_cost"] = round(result["cost"], 4)
+    task["build_files"] = _sandbox_files(sandbox)
+    task["build_finished"] = get_timestamp()
+    task["status"] = "done" if result["ok"] else "blocked"
+    task["updated"] = get_timestamp()
+    save_kanban_task(task)
+    if result["cost"]:
+        try:
+            record_cost({"agent": "claude", "tokens": 0, "cost": result["cost"], "model": "claude-build"})
+        except Exception:
+            pass
+    append_audit({"action": "kanban_build", "task_id": task_id,
+                  "status": task["build_status"], "files": len(task["build_files"])})
+
+@app.post("/api/kanban/tasks/{task_id}/build")
+def kanban_build_task(task_id: str):
+    """Spec → Build: run Claude Code headless in workspace/<task_id>/."""
+    path = KANBAN_DIR / f"{task_id}.json"
+    if not path.exists():
+        raise HTTPException(404, "Task not found")
+    _sandbox_for(task_id)  # validates id
+    task = json.loads(path.read_text(encoding="utf-8"))
+    task["build_status"] = "running"
+    task["build_started"] = get_timestamp()
+    task["status"] = "in_progress"
+    task["updated"] = get_timestamp()
+    save_kanban_task(task)
+    threading.Thread(target=_run_build, args=(task_id,), daemon=True).start()
+    return task
+
+@app.get("/api/kanban/tasks/{task_id}/preview")
+def kanban_preview(task_id: str, file: str = ""):
+    """Build → Preview: list files produced in the sandbox, or read one."""
+    sandbox = _sandbox_for(task_id)
+    if file:
+        target = (sandbox / file).resolve()
+        if target != sandbox and not target.is_relative_to(sandbox):
+            raise HTTPException(400, "Path escapes the task sandbox")
+        if not target.is_file():
+            raise HTTPException(404, "File not found")
+        return {"file": file, "content": target.read_text(encoding="utf-8", errors="replace")[:20000],
+                "size": target.stat().st_size}
+    return {"task_id": task_id, "files": _sandbox_files(sandbox)}
 
 @app.post("/api/kanban/tasks/{task_id}/decompose")
 def kanban_decompose_task(task_id: str):
@@ -2010,11 +2615,10 @@ def index():
     html_file = BASE_DIR / "dashboard" / "index.html"
     if html_file.exists():
         content = html_file.read_text(encoding="utf-8")
-        content = content.replace('href="styles.css"', 'href="/dashboard/styles.css"')
-        content = content.replace('src="utils.js"', 'src="/dashboard/utils.js"')
-        content = content.replace('src="api.js"', 'src="/dashboard/api.js"')
-        content = content.replace('src="app.js"', 'src="/dashboard/app.js"')
-        content = content.replace('pages/', '/dashboard/pages/')
+        # Rewrite any relative asset path to /dashboard/ (skip absolute paths and
+        # external URLs) so new scripts/styles work without per-file edits here.
+        content = re.sub(r'(src|href)="(?!https?://|//|/|data:)([^"]+)"',
+                         r'\1="/dashboard/\2"', content)
         return HTMLResponse(content=content)
     return HTMLResponse("<h1>Agentic OS</h1><p>Dashboard not built yet. Run <code>./install.sh</code> first.</p>")
 

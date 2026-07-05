@@ -48,6 +48,9 @@ A locally-hosted operating system for AI agents — an open-source GitHub reposi
 | **🔗 Webhook Receiver** | `/api/webhook` — trigger skill execution from external tools |
 | **🧠 SQLite FTS5 Memory** | Full-text search across brain, skills, journal with entity extraction |
 | **🤖 Auto-Skill Generator** | `POST /api/skills/generate` — create SKILL.md from natural language |
+| **🏛 Multi-Agent Orchestration** | Give a goal → CEO role decomposes it into role-assigned subtasks (researcher/cto/builder/reviewer), runs them via the fallback chain, aggregates a final artifact. Live org-chart page; spend/call guardrails |
+| **🔨 Idea→Build Pipeline** | Kanban tasks become a build pipeline: draft a spec, then Claude Code builds it headless in a per-task `workspace/<id>/` sandbox; preview produced files in the dashboard |
+| **🎙 Voice Control** | Push-to-talk (Web Speech API) — spoken commands are matched to a skill/page and **always confirmed** before running |
 | **📱 Mobile PWA** | Bottom navigation bar, manifest.json, service worker, touch-friendly UI |
 
 ---

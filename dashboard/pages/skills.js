@@ -145,6 +145,23 @@ function backToSkills() {
   document.getElementById('skillDetail').style.display = 'none';
 }
 
+async function loadSkillsSubmenu() {
+  const list = document.getElementById('secondaryList');
+  if (!list) return;
+  list.innerHTML = renderSkeleton(3);
+  try {
+    const skills = window._allSkills || await api.getSkills();
+    list.innerHTML = skills.length ? skills.map(s => `
+      <div class="secondary-item" onclick="showSkillDetail('${encodeURIComponent(s.name)}')">
+        <div class="secondary-item-title mono">${escapeHtml(s.name)}</div>
+        <div class="secondary-item-meta">${escapeHtml((s.description || '').slice(0, 60))}</div>
+      </div>
+    `).join('') : `<div class="empty-state-desc">No skills installed</div>`;
+  } catch {
+    list.innerHTML = `<div class="empty-state-desc">Failed to load skills</div>`;
+  }
+}
+
 async function quickRunSkill(encodedName) {
   const name = decodeURIComponent(encodedName);
   const displayName = escapeHtml(name.replace(/-/g, ' '));

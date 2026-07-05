@@ -5,6 +5,8 @@
   "model": null,
   "max_turns": 5,
   "timeout": 180,
+  "build_max_turns": 20,
+  "build_timeout": 600,
   "cost_tier": "paid",
   "notes": "model null = CLI default. Runs as `claude -p <prompt> --output-format json`. Requires the Claude Code CLI to be installed and logged in."
 }
