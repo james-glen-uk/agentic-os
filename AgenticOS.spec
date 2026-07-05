@@ -1,29 +1,24 @@
-# PyInstaller spec for Agentic OS desktop app.
+# PyInstaller spec for the Agentic OS desktop app.
 # Build:  pyinstaller AgenticOS.spec   (or run build.ps1)
-# Produces dist/AgenticOS/AgenticOS.exe (onedir — fast startup, easy to inspect).
-
+# Produces a single versioned installer exe:  dist/AgenticOS-Setup-v<VERSION>.exe
+from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
+
+try:
+    VERSION = Path("VERSION").read_text(encoding="utf-8").strip() or "2.0.0"
+except Exception:
+    VERSION = "2.0.0"
 
 block_cipher = None
 
 # Read-only assets bundled into the app; seeded into %LOCALAPPDATA%\AgenticOS
-# on first run (see desktop._resolve_home).
-datas = [
-    ("dashboard", "dashboard"),
-    ("brain", "brain"),
-    ("skills", "skills"),
-    ("agents", "agents"),
-    ("scheduler", "scheduler"),
-    ("prompts", "prompts"),
-    ("standards", "standards"),
-    ("registry", "registry"),
-    ("bench", "bench"),
-    ("data", "data"),
-    ("docs", "docs"),
-]
+# on first run (see desktop._resolve_home). VERSION ships too so the frozen
+# app reports its version.
+datas = [(d, d) for d in ("dashboard", "brain", "skills", "agents", "scheduler",
+                          "prompts", "standards", "registry", "bench", "data", "docs")]
+datas.append(("VERSION", "."))
 
-# uvicorn/fastapi and our own lazily-imported modules that PyInstaller's static
-# analysis can miss.
+# uvicorn/fastapi + our lazily-imported modules that static analysis can miss.
 hiddenimports = (
     collect_submodules("uvicorn")
     + collect_submodules("apscheduler")
@@ -45,14 +40,11 @@ a = Analysis(
 )
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# One-file build → a single double-clickable, versioned exe.
 exe = EXE(
-    pyz, a.scripts, [],
-    exclude_binaries=True,
-    name="AgenticOS",
+    pyz, a.scripts, a.binaries, a.zipfiles, a.datas, [],
+    name=f"AgenticOS-Setup-v{VERSION}",
     console=False,          # GUI app — no console window
+    upx=True,
     disable_windowed_traceback=False,
-)
-coll = COLLECT(
-    exe, a.binaries, a.zipfiles, a.datas,
-    strip=False, upx=True, name="AgenticOS",
 )
