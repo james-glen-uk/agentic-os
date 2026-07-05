@@ -53,28 +53,18 @@ function toggleSidebar() {
   const sidebar = document.getElementById('sidebar');
   const isCollapsed = sidebar.classList.toggle('collapsed');
   localStorage.setItem('sidebarCollapsed', isCollapsed);
-  const icon = sidebar.querySelector('.toggle-icon');
-  if (icon) {
-    icon.style.transform = isCollapsed ? 'rotate(180deg)' : '';
-  }
 }
 
-function toggleTheme() {
-  const html = document.documentElement;
-  const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-  html.setAttribute('data-theme', next);
-  localStorage.setItem('theme', next);
-}
-
-function loadTheme() {
-  const saved = localStorage.getItem('theme');
-  if (saved) document.documentElement.setAttribute('data-theme', saved);
+function loadUIState() {
   const sidebarCollapsed = localStorage.getItem('sidebarCollapsed');
   if (sidebarCollapsed === 'true') {
-    const sidebar = document.getElementById('sidebar');
-    sidebar.classList.add('collapsed');
-    const icon = sidebar.querySelector('.toggle-icon');
-    if (icon) icon.style.transform = 'rotate(180deg)';
+    document.getElementById('sidebar').classList.add('collapsed');
+  }
+  const rightPanelCollapsed = localStorage.getItem('rightPanelCollapsed');
+  const rightPanel = document.getElementById('rightPanel');
+  if (rightPanel && rightPanelCollapsed !== 'true') {
+    rightPanel.hidden = false;
+    loadBackgroundTasks();
   }
 }
 
@@ -109,28 +99,3 @@ function renderSkeleton(count = 3) {
   ).join('');
 }
 
-const PAGE_TITLES = {
-  dashboard: { title: 'Dashboard', breadcrumb: 'Overview' },
-  skills: { title: 'Skills Hub', breadcrumb: 'Browse & execute skills' },
-  memory: { title: 'Memory', breadcrumb: 'Shared brain context' },
-  scheduler: { title: 'Scheduler', breadcrumb: 'Automated workflows' },
-  audit: { title: 'Audit Log', breadcrumb: 'System activity trail' },
-  cost: { title: 'Cost Analytics', breadcrumb: 'Usage & spending' },
-  plugins: { title: 'Plugin Registry', breadcrumb: 'Manage plugins' },
-  backups: { title: 'Backups', breadcrumb: 'Disaster recovery' },
-  prompts: { title: 'Prompt Library', breadcrumb: 'Reusable templates' },
-  standards: { title: 'Standards', breadcrumb: 'Project conventions' },
-  settings: { title: 'Settings', breadcrumb: 'Configuration' },
-  'setup-wizard': { title: 'Setup Wizard', breadcrumb: 'Guided configuration' },
-  chat: { title: 'AI Chat', breadcrumb: 'Multi-agent terminal' },
-  errors: { title: 'Error Dashboard', breadcrumb: 'System errors & circuit breaker' },
-  kanban: { title: 'Kanban Board', breadcrumb: 'Multi-agent task management' },
-  goals: { title: 'Goals', breadcrumb: 'Project targets and progress' },
-  journal: { title: 'Journal', breadcrumb: 'Daily entries and notes' },
-  'agent-health': { title: 'Agent Health', breadcrumb: 'Real-time agent monitoring' },
-  'smart-router': { title: 'Smart Router', breadcrumb: 'Task routing intelligence' },
-  'learning-analytics': { title: 'Learning Analytics', breadcrumb: 'Skill improvement tracking' },
-  'session-replay': { title: 'Session Replay', breadcrumb: 'Conversation history playback' },
-  artifacts: { title: 'Artifact Library', breadcrumb: 'Saved skill outputs' },
-  news: { title: 'News Oracle', breadcrumb: 'Trending topics → one-click content' },
-};

@@ -83,6 +83,24 @@ async function loadArtifacts() {
   }
 }
 
+async function loadArtifactsSubmenu() {
+  const list = document.getElementById('secondaryList');
+  if (!list) return;
+  list.innerHTML = renderSkeleton(3);
+  try {
+    const data = await api.getArtifacts({});
+    const artifacts = (data.artifacts || []).slice(0, 20);
+    list.innerHTML = artifacts.length ? artifacts.map(a => `
+      <div class="secondary-item" onclick="openArtifact('${a.id}')">
+        <div class="secondary-item-title">${escapeHtml(a.title)}</div>
+        <div class="secondary-item-meta mono">#${a.id} · ${escapeHtml(a.skill)}</div>
+      </div>
+    `).join('') : `<div class="empty-state-desc">No artifacts yet</div>`;
+  } catch {
+    list.innerHTML = `<div class="empty-state-desc">Failed to load artifacts</div>`;
+  }
+}
+
 async function openArtifact(id) {
   try {
     const a = await api.getArtifact(id);

@@ -57,7 +57,10 @@ def _save_history(event: dict):
 def get_history(limit: int = 100) -> list:
     if not HISTORY_FILE.exists():
         return []
-    history = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+    try:
+        history = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
     return history[-limit:]
 
 def load_job_definitions() -> list:

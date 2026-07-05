@@ -90,9 +90,13 @@ async function renderCost() {
     const agentData = Object.values(agentTotals);
 
     if (entries.length > 0) {
+      // Agent color identity, consistent with the rest of the app: claude=accent, gemini=blue, hermes=green, opencode=neutral
+      const agentColors = { claude: 'rgba(217,119,87,0.85)', gemini: 'rgba(123,163,204,0.85)', hermes: 'rgba(131,168,131,0.85)', opencode: 'rgba(180,177,168,0.85)' };
+      const accent = 'rgba(217,119,87,0.85)';
+
       new Chart(document.getElementById('agentChart'), {
         type: 'doughnut',
-        data: { labels: agentLabels, datasets: [{ data: agentData, backgroundColor: ['rgba(108,92,231,0.8)', 'rgba(0,212,170,0.8)', 'rgba(69,170,242,0.8)', 'rgba(255,165,2,0.8)'] }] },
+        data: { labels: agentLabels, datasets: [{ data: agentData, backgroundColor: agentLabels.map(a => agentColors[a] || accent) }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim(), font: { size: 11 } } } } }
       });
 
@@ -106,7 +110,7 @@ async function renderCost() {
 
       new Chart(document.getElementById('timeChart'), {
         type: 'line',
-        data: { labels: timeLabels, datasets: [{ label: 'Tokens', data: timeData, borderColor: 'rgba(108,92,231,0.8)', backgroundColor: 'rgba(108,92,231,0.1)', fill: true, tension: 0.4, pointRadius: 3 }] },
+        data: { labels: timeLabels, datasets: [{ label: 'Tokens', data: timeData, borderColor: accent, backgroundColor: 'rgba(217,119,87,0.12)', fill: true, tension: 0.4, pointRadius: 3 }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim(), font: { size: 10 } } }, y: { ticks: { color: getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim(), font: { size: 10 } } } } }
       });
     }
