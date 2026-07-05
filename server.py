@@ -1302,6 +1302,25 @@ def save_artifact(skill: str, agent: str, content: str, title: str = "",
         log.debug("artifact FTS indexing unavailable", exc_info=True)
     return meta
 
+def save_binary_artifact(skill: str, agent: str, data: bytes, ext: str,
+                         artifact_type: str = "image", title: str = "",
+                         source_topic: str = "", mime: str = "application/octet-stream") -> dict:
+    """Persist a binary artifact (image/audio/video). Content isn't FTS-indexed."""
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    art_id = str(uuid.uuid4())[:8]
+    content_file = f"{art_id}.{ext.lstrip('.')}"
+    (ARTIFACTS_DIR / content_file).write_bytes(data)
+    meta = {
+        "id": art_id,
+        "title": title or f"{skill} — {get_timestamp()[:10]}",
+        "skill": skill, "agent": agent, "type": artifact_type,
+        "tags": [], "bookmarked": False, "source_topic": source_topic,
+        "content_file": content_file, "mime": mime,
+        "created": get_timestamp(), "size": len(data),
+    }
+    atomic_write_json(ARTIFACTS_DIR / f"{art_id}.meta.json", meta)
+    return meta
+
 def _artifact_meta_path(art_id: str) -> Path:
     if not _ARTIFACT_ID_RE.match(art_id or ""):
         raise HTTPException(400, "Invalid artifact id")
@@ -1341,11 +1360,26 @@ def list_artifacts(skill: str = "", tag: str = "", bookmarked: Optional[bool] = 
             break
     return {"artifacts": items, "total": len(items)}
 
+_BINARY_ARTIFACT_TYPES = {"image", "audio", "video"}
+
 @app.get("/api/artifacts/{art_id}")
 def get_artifact(art_id: str):
     meta = json.loads(_artifact_meta_path(art_id).read_text(encoding="utf-8-sig"))
-    meta["content"] = _artifact_content(meta)
+    if meta.get("type") in _BINARY_ARTIFACT_TYPES:
+        meta["content"] = ""  # binary — fetch via /raw
+        meta["raw_url"] = f"/api/artifacts/{art_id}/raw"
+    else:
+        meta["content"] = _artifact_content(meta)
     return meta
+
+@app.get("/api/artifacts/{art_id}/raw")
+def get_artifact_raw(art_id: str):
+    meta = json.loads(_artifact_meta_path(art_id).read_text(encoding="utf-8-sig"))
+    f = ARTIFACTS_DIR / meta.get("content_file", "")
+    if not f.is_file():
+        raise HTTPException(404, "Content file missing")
+    return Response(content=f.read_bytes(),
+                    media_type=meta.get("mime", "application/octet-stream"))
 
 @app.patch("/api/artifacts/{art_id}")
 def update_artifact(art_id: str, data: ArtifactUpdate):
@@ -1369,6 +1403,84 @@ def delete_artifact(art_id: str):
     p.unlink()
     append_audit({"action": "artifact_deleted", "id": art_id})
     return {"status": "deleted", "id": art_id}
+
+# ─── Media Generation (pluggable provider adapter) ────────────────
+# One interface, provider chosen in settings.media.image_provider. Ships
+# unconfigured — image generation needs a provider + key, so the default
+# path returns a clear setup message rather than failing opaquely.
+
+class ImageGenRequest(BaseModel):
+    prompt: str
+    preset: Optional[str] = ""
+
+IMAGE_STYLE_PRESETS = {
+    "": "",
+    "photo": "photorealistic, sharp focus, natural lighting",
+    "illustration": "clean vector illustration, flat colors",
+    "3d": "3D render, soft studio lighting, subtle shadows",
+    "pixel": "16-bit pixel art, limited palette",
+}
+
+def generate_image(prompt: str, preset: str = "") -> dict:
+    """Provider adapter. Returns {ok, data(bytes), mime, ext} or
+    {ok:False, configured, error}. Real providers are called only when a
+    key is present; otherwise a graceful unconfigured result is returned."""
+    settings = load_settings()
+    provider = (settings.get("media", {}) or {}).get("image_provider", "")
+    keys = settings.get("api_keys", {}) or {}
+    styled = f"{prompt}. {IMAGE_STYLE_PRESETS.get(preset, '')}".strip().rstrip(".")
+
+    if not provider:
+        return {"ok": False, "configured": False,
+                "error": "No image provider configured. Set media.image_provider "
+                         "(e.g. \"gemini\") and the matching API key in Settings."}
+    if provider == "gemini":
+        api_key = keys.get("gemini", "")
+        if not api_key:
+            return {"ok": False, "configured": False,
+                    "error": "Gemini image provider selected but api_keys.gemini is not set."}
+        try:
+            import base64, urllib.request
+            url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+                   "gemini-2.5-flash-image:generateContent?key=" + api_key)
+            body = json.dumps({"contents": [{"parts": [{"text": styled}]}]}).encode()
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read())
+            for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+                inline = part.get("inlineData") or part.get("inline_data")
+                if inline and inline.get("data"):
+                    return {"ok": True, "data": base64.b64decode(inline["data"]),
+                            "mime": inline.get("mimeType", "image/png"), "ext": "png"}
+            return {"ok": False, "configured": True, "error": "Provider returned no image data."}
+        except Exception as e:
+            return {"ok": False, "configured": True, "error": f"Gemini image request failed: {e}"}
+    return {"ok": False, "configured": False, "error": f"Unknown image provider: {provider}"}
+
+@app.post("/api/media/image")
+def media_generate_image(req: ImageGenRequest):
+    prompt = (req.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(400, "Prompt cannot be empty")
+    result = generate_image(prompt, req.preset or "")
+    if not result["ok"]:
+        # Not an error the caller did wrong — surface setup guidance clearly.
+        return {"status": "unconfigured" if not result.get("configured") else "failed",
+                "message": result["error"]}
+    art = save_binary_artifact(
+        skill="image-gen", agent=f"media:{load_settings().get('media', {}).get('image_provider', '')}",
+        data=result["data"], ext=result["ext"], artifact_type="image",
+        title=prompt[:60], source_topic=prompt, mime=result["mime"])
+    append_audit({"action": "image_generated", "artifact_id": art["id"], "prompt": prompt[:60]})
+    return {"status": "completed", "artifact_id": art["id"],
+            "raw_url": f"/api/artifacts/{art['id']}/raw"}
+
+@app.get("/api/media/presets")
+def media_presets():
+    settings = load_settings()
+    provider = (settings.get("media", {}) or {}).get("image_provider", "")
+    return {"presets": list(IMAGE_STYLE_PRESETS.keys()), "provider": provider,
+            "configured": bool(provider)}
 
 # ─── Fallback Chain Engine ────────────────────────────────────────
 # execute_agent() reports failures as human-readable strings (v0.3.0

@@ -1,0 +1,7 @@
+{
+  "criteria": [
+    { "name": "prompt_fidelity", "weight": 0.4 },
+    { "name": "visual_quality", "weight": 0.4 },
+    { "name": "style_match", "weight": 0.2 }
+  ]
+}

@@ -106,7 +106,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Build = Claude Code headless in `workspace/<task-id>/` only; logs stored per task (browsable like `session-replay.js`); preview renders produced files/static output.
   **Done when:** idea card → editable AI spec → sandboxed build → preview in dashboard; write-outside-sandbox attempt fails a test.
 
-- [ ] **3.4 Image generation workflow** *(F1)*
+- [x] **3.4 Image generation workflow** *(F1)*
   Files: new `skills/image-gen/`, new `server.py` media adapter (provider from settings, Gemini image first), artifacts page image preview
   **Done when:** prompt + style preset → image file in library; unconfigured provider shows graceful setup message.
 

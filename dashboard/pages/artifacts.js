@@ -74,7 +74,9 @@ async function loadArtifacts() {
           <span class="badge" style="opacity:.7">${escapeHtml(a.agent || '')}</span>
           ${(a.tags || []).map(t => `<span class="badge" style="background:var(--accent-dim)">${escapeHtml(t)}</span>`).join('')}
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">${escapeHtml(a.preview || '')}</p>
+        ${a.type === 'image'
+          ? `<img src="/api/artifacts/${a.id}/raw" alt="${escapeHtml(a.title)}" style="width:100%;border-radius:8px;max-height:160px;object-fit:cover" loading="lazy">`
+          : `<p style="font-size:12px;color:var(--text-secondary);margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">${escapeHtml(a.preview || '')}</p>`}
         <div style="font-size:11px;color:var(--text-muted)">${(a.created || '').slice(0, 16).replace('T', ' ')}${a.source_topic ? ' · 📰 ' + escapeHtml(a.source_topic) : ''}</div>
       </div>
     `).join('');
@@ -114,7 +116,9 @@ async function openArtifact(id) {
         <label class="form-label">Tags (comma-separated)</label>
         <input id="artTagsInput" class="form-input" value="${escapeHtml((a.tags || []).join(', '))}">
       </div>
-      <pre style="white-space:pre-wrap;font-size:12px;max-height:45vh;overflow:auto;background:var(--bg-secondary);padding:12px;border-radius:8px">${escapeHtml(a.content || '')}</pre>
+      ${a.type === 'image'
+        ? `<img src="/api/artifacts/${a.id}/raw" alt="${escapeHtml(a.title)}" style="width:100%;border-radius:8px;max-height:55vh;object-fit:contain;background:var(--bg-secondary)">`
+        : `<pre style="white-space:pre-wrap;font-size:12px;max-height:45vh;overflow:auto;background:var(--bg-secondary);padding:12px;border-radius:8px">${escapeHtml(a.content || '')}</pre>`}
     `, `
       <button class="btn" onclick="saveArtifactTags('${a.id}')">💾 Save Tags</button>
       <button class="btn btn-danger" onclick="deleteArtifactConfirm('${a.id}')">🗑 Delete</button>
