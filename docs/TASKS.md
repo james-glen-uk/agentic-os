@@ -43,22 +43,22 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
 
 ## Phase 1 — Claude Code Agent + Real Routing (PRD Epics B, C) `P0`
 
-- [ ] **1.1 Claude Code backend** *(B1)*
+- [x] **1.1 Claude Code backend** *(B1)*
   Files: `server.py` `execute_agent()` (824–895), new `agents/claude/claude.json`
   New branch: `claude -p "<prompt>" --output-format json` headless, cwd = dedicated workspace dir, timeout + `--max-turns` cap from agent config; parse response text from JSON. Failures feed circuit breaker + error log like other agents.
   **Done when:** `POST /api/chat {"agent":"claude", ...}` returns a response with Claude Code installed; tests cover parse + timeout paths (mocked).
 
-- [ ] **1.2 Claude platform integration** *(B2)*
+- [x] **1.2 Claude platform integration** *(B2)*
   Files: `server.py` (health check, router), `data/agent-routes.json`, `dashboard/pages/chat.js`, `agent-health.js`, `smart-router.js`, `cost.js` labels
   Health probe (platform-aware via 0.4), chat selector entry, routes for complex/build/orchestration keywords, cost recording per run (tokens from JSON output).
   **Done when:** claude appears in health/chat/router/cost pages; with claude absent, trio behavior is byte-for-byte unchanged (test).
 
-- [ ] **1.3 Fallback chain engine** *(C1)*
+- [x] **1.3 Fallback chain engine** *(C1)*
   Files: `server.py` (new `resolve_agent_chain()` + `execute_with_fallback()` wrapping `execute_agent()`), `data/agent-routes.json` (chain config)
   Order: skill `Primary:`/config override → routes file → router suggestion → default. Skip agents with open circuit (`data/circuit-breaker.json`) or offline health. Record attempt chain in run result + audit.
   **Done when:** test: primary mocked to fail ⇒ run succeeds on secondary, audit notes substitution; all agents exhausted ⇒ error dashboard shows full chain.
 
-- [ ] **1.4 Free-only mode + cost-aware ordering** *(C2)*
+- [x] **1.4 Free-only mode + cost-aware ordering** *(C2)*
   Files: `server.py`, `data/settings.json` (`routing.free_only`, `routing.prefer`), `dashboard/pages/settings.js`, `README.md`
   `free_only=true` excludes claude from every chain; `prefer: cost|quality` reorders. Rewrite README routing/fallback section to match reality.
   **Done when:** toggle in settings UI works; tests cover both modes; README claim audit for routing passes.

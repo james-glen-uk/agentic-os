@@ -17,12 +17,13 @@ async function renderSettings() {
     const dashboard = settings.dashboard || {};
     const limits = settings.free_tier_limits || {};
     const apiKeys = settings.api_keys || {};
+    const routing = settings.routing || {};
 
     document.getElementById('settingsForm').innerHTML = `
       <div class="card">
         <div class="card-header"><span class="card-title">🤖 Agent Preferences</span></div>
         <div class="grid grid-3">
-          ${['opencode', 'hermes', 'gemini'].map(a => `
+          ${['opencode', 'hermes', 'gemini', 'claude'].map(a => `
             <div class="card" style="padding:14px">
               <div class="flex items-center gap-2 mb-2">
                 <div class="agent-dot ${prefs[a] && prefs[a].enabled !== false ? 'online' : 'offline'}" style="width:10px;height:10px"></div>
@@ -39,6 +40,27 @@ async function renderSettings() {
             </div>
           `).join('')}
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">🧭 Routing & Fallback</span></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="switch" style="width:auto;display:flex;align-items:center;gap:10px">
+              <input type="checkbox" id="routeFreeOnly" ${routing.free_only ? 'checked' : ''}>
+              <span class="switch-slider" style="position:relative;display:inline-block;width:40px;height:22px"></span>
+              <span style="font-size:13px">Free-only mode (never route to paid agents like Claude Code)</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Fallback ordering</label>
+            <select id="routePrefer" class="form-select">
+              <option value="cost" ${routing.prefer !== 'quality' ? 'selected' : ''}>Cost — free agents first</option>
+              <option value="quality" ${routing.prefer === 'quality' ? 'selected' : ''}>Quality — Claude Code first</option>
+            </select>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted)">Every agent call tries a fallback chain: your chosen agent first, then the others (open circuits and offline agents last). A call only fails when every agent is exhausted.</p>
       </div>
 
       <div class="card">
@@ -125,6 +147,11 @@ async function saveAllSettings() {
         opencode: { enabled: document.getElementById('agent_opencode').checked, binary: document.getElementById('bin_opencode').value },
         hermes: { enabled: document.getElementById('agent_hermes').checked, binary: document.getElementById('bin_hermes').value },
         gemini: { enabled: document.getElementById('agent_gemini').checked, binary: document.getElementById('bin_gemini').value },
+        claude: { enabled: document.getElementById('agent_claude').checked, binary: document.getElementById('bin_claude').value },
+      },
+      routing: {
+        free_only: document.getElementById('routeFreeOnly').checked,
+        prefer: document.getElementById('routePrefer').value,
       },
       dashboard: {
         port: parseInt(document.getElementById('setPort').value) || 8080,
@@ -167,7 +194,7 @@ async function resetSettings() {
 async function confirmReset() {
   const defaults = {
     theme: 'dark',
-    agent_preferences: { opencode: { enabled: true, binary: 'opencode' }, hermes: { enabled: true, binary: 'hermes' }, gemini: { enabled: true, binary: 'gemini', model: 'gemini-2.5-flash' } },
+    agent_preferences: { opencode: { enabled: true, binary: 'opencode' }, hermes: { enabled: true, binary: 'hermes' }, gemini: { enabled: true, binary: 'gemini', model: 'gemini-2.5-flash' }, claude: { enabled: true, binary: 'claude' } },
     dashboard: { port: 8080, host: '127.0.0.1', dark_mode: true },
     api_keys: { gemini: '', openrouter: '' },
     free_tier_limits: { gemini_flash: { requests_per_day: 1500, tokens_per_day: 1000000 }, openrouter_free: { requests_per_day: 100, tokens_per_day: 200000 } },

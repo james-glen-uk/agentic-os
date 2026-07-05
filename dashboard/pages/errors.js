@@ -120,7 +120,7 @@ async function loadCircuitBreaker() {
       container.innerHTML = '<div style="grid-column:1/-1"><div class="empty-state" style="padding:20px"><div class="empty-state-icon">🔌</div><div class="empty-state-title">No circuit breaker data</div></div></div>';
       return;
     }
-    const agentIcons = { opencode: '🔧', hermes: '⚡', gemini: '🧠' };
+    const agentIcons = { opencode: '🔧', hermes: '⚡', gemini: '🧠', claude: '🤖' };
     container.innerHTML = agentNames.map(a => {
       const cb = agents[a] || {};
       const isOpen = cb.state === 'open';

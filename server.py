@@ -275,14 +275,23 @@ def log_agent_cli_table(results: dict):
 
 # ─── Agent Discovery (instant filesystem checks) ────────────────────
 
+# Canonical agent list: the free-tier trio + Claude Code (premium)
+KNOWN_AGENTS = ["opencode", "hermes", "gemini", "claude"]
+
+def load_agent_config(agent: str) -> dict:
+    p = BASE_DIR / "agents" / agent / f"{agent}.json"
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
 def check_agent(name: str) -> dict:
     """Instant filesystem-based check. No subprocess needed."""
     try:
-        if name == "opencode":
-            exists = shutil.which("opencode") is not None
-            status = "online" if exists else "offline"
-        elif name == "hermes":
-            exists = shutil.which("hermes") is not None
+        if name in ("opencode", "hermes", "claude"):
+            exists = shutil.which(name) is not None
             status = "online" if exists else "offline"
         elif name == "gemini":
             # Gemini has valid OAuth tokens logged in
@@ -300,7 +309,7 @@ def check_agent(name: str) -> dict:
 
 @app.get("/api/status")
 def get_status():
-    agents = [check_agent(a) for a in ["opencode", "hermes", "gemini"]]
+    agents = [check_agent(a) for a in KNOWN_AGENTS]
     skills_dir = BASE_DIR / "skills"
     skills_count = 0
     if skills_dir.exists():
@@ -417,7 +426,7 @@ def run_skill(name: str, req: Optional[SkillRunRequest] = None):
                 line = line.strip()
                 if "Primary:" in line:
                     candidate = line.split(":")[-1].strip().lower()
-                    if candidate in ("opencode", "hermes", "gemini"):
+                    if candidate in KNOWN_AGENTS:
                         agent_choice = candidate
                         break
             if agent_choice == "auto":
@@ -434,22 +443,20 @@ def run_skill(name: str, req: Optional[SkillRunRequest] = None):
 
     run_id = str(uuid.uuid4())[:8]
 
-    # Execute via agent
-    try:
-        response_text = execute_agent(agent_choice, prompt)
-    except subprocess.TimeoutExpired:
-        response_text = f"⏱ Skill '{name}' timed out on agent '{agent_choice}'."
-    except FileNotFoundError:
-        response_text = f"⚠ Agent '{agent_choice}' CLI not installed. Install it and try again."
-    except Exception as e:
-        response_text = f"⚠ Error executing skill: {str(e)}"
+    # Execute via fallback chain (explicit choice first, else routed primary)
+    requested = (req.agent if req and req.agent else "auto") or "auto"
+    chain = resolve_agent_chain(requested, primary=agent_choice)
+    run_result = execute_with_fallback(chain, prompt)
+    response_text = run_result["output"]
+    agent_used = run_result["agent"] or agent_choice
 
     # Save output to learnings.md
     timestamp = get_timestamp()[:10]
     existing = read_file(path / "learnings.md")
+    fallback_note = " (fallback)" if run_result["fallback_used"] and run_result["agent"] else ""
     new_entry = (
         f"\n## {timestamp} (Run {run_id})\n"
-        f"- Agent: {agent_choice}\n"
+        f"- Agent: {agent_used}{fallback_note}\n"
         f"- Input: {skill_input or '(none)'}\n"
         f"- Output: {response_text[:500]}\n"
     )
@@ -459,18 +466,23 @@ def run_skill(name: str, req: Optional[SkillRunRequest] = None):
     append_audit({
         "action": "skill_run",
         "skill": name,
-        "agent": agent_choice,
+        "agent": agent_used,
+        "requested": agent_choice,
+        "fallback_used": run_result["fallback_used"],
         "run_id": run_id,
         "output_preview": response_text[:100],
     })
 
     return {
-        "status": "completed",
+        "status": "completed" if run_result["agent"] else "failed",
         "run_id": run_id,
         "skill": name,
-        "agent": agent_choice,
+        "agent": agent_used,
+        "requested_agent": agent_choice,
+        "attempts": run_result["attempts"],
+        "fallback_used": run_result["fallback_used"],
         "output": response_text,
-        "message": f"Skill '{name}' completed via {agent_choice}",
+        "message": f"Skill '{name}' {'completed via ' + agent_used if run_result['agent'] else 'failed on all agents'}",
     }
 
 @app.get("/api/skills/{name}/eval")
@@ -828,7 +840,7 @@ def get_circuit_breaker():
 @app.post("/api/circuit-breaker/trip")
 def trip_circuit_breaker(data: dict):
     agent = data.get("agent", "")
-    if agent not in ["opencode", "hermes", "gemini"]:
+    if agent not in KNOWN_AGENTS:
         raise HTTPException(400, "Invalid agent")
     state = _get_circuit_state()
     if agent not in state["agents"]:
@@ -845,7 +857,7 @@ def trip_circuit_breaker(data: dict):
 @app.post("/api/circuit-breaker/reset")
 def reset_circuit_breaker(data: dict):
     agent = data.get("agent", "")
-    if agent not in ["opencode", "hermes", "gemini"]:
+    if agent not in KNOWN_AGENTS:
         raise HTTPException(400, "Invalid agent")
     state = _get_circuit_state()
     state["agents"][agent] = {"state": "closed", "failures": 0, "opened_at": None}
@@ -898,7 +910,8 @@ def save_chat_message(msg: dict):
     CHAT_HISTORY_FILE.write_text(json.dumps(history, indent=2), encoding="utf-8")
 
 def run_cli(args: list, timeout: int = 30) -> tuple:
-    r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    r = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                       encoding="utf-8", errors="replace")
     return r.returncode, r.stdout, r.stderr
 
 def clean_hermes_output(raw: str) -> str:
@@ -990,6 +1003,38 @@ def execute_agent(agent: str, message: str) -> str:
                 return combined or f"gemini returned exit code {code}"
             return "Gemini CLI did not return a response."
 
+        elif agent == "claude":
+            cfg = load_agent_config("claude")
+            cmd = ["claude", "-p", message, "--output-format", "json",
+                   "--max-turns", str(cfg.get("max_turns", 5))]
+            if cfg.get("model"):
+                cmd += ["--model", cfg["model"]]
+            try:
+                code, out, err = run_cli(cmd, timeout=cfg.get("timeout", 180))
+            except subprocess.TimeoutExpired:
+                return "⏱ Claude Code timed out.\n\nTry a shorter prompt, or raise `timeout` in agents/claude/claude.json."
+            if code == 0:
+                try:
+                    result_data = json.loads(out or "{}")
+                except json.JSONDecodeError:
+                    return (out or "").strip() or "Claude Code returned no output."
+                cost = result_data.get("total_cost_usd")
+                if cost:
+                    usage = result_data.get("usage", {}) or {}
+                    tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+                    try:
+                        record_cost({"agent": "claude", "tokens": tokens,
+                                     "cost": cost, "model": cfg.get("model") or "claude-default"})
+                    except Exception:
+                        log.warning("Failed to record claude cost", exc_info=True)
+                text = (result_data.get("result") or "").strip()
+                return text or "Claude Code returned an empty response."
+            err_msg = (err or "").strip()
+            low = err_msg.lower()
+            if "log in" in low or "login" in low or "api key" in low or "authent" in low:
+                return f"**Claude Code needs auth**\n\nRun `claude` once in a terminal to log in.\n\n**Details:** {err_msg[:200]}"
+            return err_msg or f"claude returned exit code {code}"
+
         else:
             return f"Unknown agent: {agent}"
     except subprocess.TimeoutExpired:
@@ -999,11 +1044,108 @@ def execute_agent(agent: str, message: str) -> str:
     except Exception as e:
         return f"⚠ Error communicating with {agent}: {str(e)}"
 
+# ─── Fallback Chain Engine ────────────────────────────────────────
+# execute_agent() reports failures as human-readable strings (v0.3.0
+# style) rather than raising, so the chain engine detects them by the
+# markers those strings always carry.
+
+def _response_indicates_failure(text: str) -> bool:
+    if not text:
+        return True
+    if text.startswith(("⏱", "⚠")):
+        return True
+    low = text.lower()
+    return ("returned exit code" in low or "needs auth" in low
+            or "needs setup" in low or "cli not installed" in low
+            or "did not return a response" in low
+            or low.startswith("unknown agent"))
+
+def _paid_agents() -> set:
+    return {a for a in KNOWN_AGENTS if load_agent_config(a).get("cost_tier") == "paid"}
+
+def _circuit_open_agents() -> set:
+    state = _get_circuit_state()
+    now = time.time()
+    out = set()
+    for agent, cb in state.get("agents", {}).items():
+        if cb.get("state") == "open" and now - (cb.get("opened_at") or 0) <= state.get("recovery_timeout", 300):
+            out.add(agent)
+    return out
+
+def _record_agent_failure(agent: str):
+    state = _get_circuit_state()
+    cb = state["agents"].setdefault(agent, {"state": "closed", "failures": 0, "opened_at": None})
+    cb["failures"] = cb.get("failures", 0) + 1
+    if cb["failures"] >= state.get("threshold", 3):
+        cb["state"] = "open"
+        cb["opened_at"] = time.time()
+    _save_circuit_state(state)
+
+def _record_agent_success(agent: str):
+    state = _get_circuit_state()
+    state["agents"][agent] = {"state": "closed", "failures": 0, "opened_at": None}
+    _save_circuit_state(state)
+
+def _suggest_agent(task: str) -> str:
+    task_lower = (task or "").lower()
+    scores = {a: sum(1 for k in kws if k in task_lower) for a, kws in ROUTER_RULES.items()}
+    return max(scores, key=scores.get)
+
+def resolve_agent_chain(requested: str = "auto", primary: str = "") -> list:
+    """Ordered agents to try: explicit/primary first, then fallbacks.
+
+    Fallbacks are ordered by routing.prefer (cost|quality), with
+    open-circuit and offline agents pushed to the back. routing.free_only
+    removes paid backends entirely.
+    """
+    routing = load_settings().get("routing", {})
+    if routing.get("prefer") == "quality":
+        base = ["claude", "opencode", "gemini", "hermes"]
+    else:
+        base = ["opencode", "gemini", "hermes", "claude"]
+    chain = []
+    if requested and requested != "auto":
+        chain.append(requested)
+    elif primary:
+        chain.append(primary)
+    for a in base:
+        if a not in chain:
+            chain.append(a)
+    if routing.get("free_only"):
+        paid = _paid_agents()
+        chain = [a for a in chain if a not in paid]
+    head, rest = chain[:1], chain[1:]
+    open_circuits = _circuit_open_agents()
+    rest.sort(key=lambda a: (a in open_circuits, check_agent(a)["status"] != "online"))
+    return head + rest
+
+def execute_with_fallback(chain: list, message: str) -> dict:
+    """Try each agent in order until one succeeds; record every attempt."""
+    attempts = []
+    for agent in chain:
+        text = execute_agent(agent, message)
+        if _response_indicates_failure(text):
+            attempts.append({"agent": agent, "ok": False, "error": (text or "")[:200]})
+            _record_agent_failure(agent)
+            continue
+        attempts.append({"agent": agent, "ok": True})
+        _record_agent_success(agent)
+        if len(attempts) > 1:
+            append_audit({"action": "agent_fallback", "requested": chain[0],
+                          "used": agent, "attempts": len(attempts)})
+        return {"agent": agent, "output": text, "attempts": attempts,
+                "fallback_used": len(attempts) > 1}
+    summary = "⚠ All agents failed.\n\n" + "\n".join(
+        f"- **{a['agent']}**: {a['error']}" for a in attempts)
+    log_error("fallback", f"All {len(attempts)} agents failed", category="agent",
+              details={"attempts": attempts})
+    return {"agent": None, "output": summary, "attempts": attempts, "fallback_used": True}
+
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     agent = req.agent.lower().strip()
-    if agent not in ["opencode", "hermes", "gemini"]:
-        raise HTTPException(400, "Agent must be one of: opencode, hermes, gemini")
+    if agent != "auto" and agent not in KNOWN_AGENTS:
+        raise HTTPException(400, f"Agent must be 'auto' or one of: {', '.join(KNOWN_AGENTS)}")
     message = (req.message or "").strip()
     if not message:
         raise HTTPException(400, "Message cannot be empty")
@@ -1019,20 +1161,24 @@ def chat(req: ChatRequest):
     }
     save_chat_message(user_msg)
 
-    response_text = execute_agent(agent, message)
+    chain = resolve_agent_chain(agent, primary=_suggest_agent(message) if agent == "auto" else "")
+    result = execute_with_fallback(chain, message)
+    agent_used = result["agent"] or chain[0]
 
     agent_msg = {
         "id": str(uuid.uuid4())[:8],
         "role": "assistant",
-        "agent": agent,
-        "content": response_text,
+        "agent": agent_used,
+        "content": result["output"],
         "timestamp": get_timestamp(),
     }
     save_chat_message(agent_msg)
 
-    append_audit({"action": "chat_message", "agent": agent, "msg_preview": message[:50]})
+    append_audit({"action": "chat_message", "agent": agent_used,
+                  "requested": agent, "msg_preview": message[:50]})
 
-    return {"status": "ok", "response": agent_msg}
+    return {"status": "ok", "response": agent_msg,
+            "attempts": result["attempts"], "fallback_used": result["fallback_used"]}
 
 @app.get("/api/chat/history")
 def get_chat_history():
@@ -1437,7 +1583,7 @@ def search_journal(q: str = Query("")):
 def get_agent_health():
     try:
         agents = []
-        for name in ["opencode", "hermes", "gemini"]:
+        for name in KNOWN_AGENTS:
             info = check_agent(name)
             info["uptime"] = 0
             info["success_rate"] = 100
@@ -1450,7 +1596,7 @@ def get_agent_health():
 @app.get("/api/agents/{name}/stats")
 def get_agent_stats(name: str):
     try:
-        if name not in ["opencode", "hermes", "gemini"]:
+        if name not in KNOWN_AGENTS:
             raise HTTPException(400, "Invalid agent")
         info = check_agent(name)
         return {
@@ -1471,7 +1617,7 @@ def get_agent_stats(name: str):
 def refresh_agent_health():
     try:
         agents = []
-        for name in ["opencode", "hermes", "gemini"]:
+        for name in KNOWN_AGENTS:
             info = check_agent(name)
             agents.append(info)
         append_audit({"action": "agent_health_refreshed"})
@@ -1485,6 +1631,7 @@ ROUTER_RULES = {
     "opencode": ["code", "devops", "deploy", "git", "file", "terraform", "docker", "test", "build", "infra", "script"],
     "hermes": ["memory", "schedule", "channel", "skill", "cron", "reminder", "brain", "plugin", "backup"],
     "gemini": ["research", "analyze", "search", "compare", "explain", "study", "learn", "document", "report", "review"],
+    "claude": ["implement", "refactor", "architect", "orchestrate", "spec", "prd", "pipeline", "complex", "multi-step", "feature"],
 }
 
 @app.post("/api/router/suggest")
@@ -1509,7 +1656,7 @@ def router_suggest(data: RouterSuggest):
 def router_route(data: RouterRoute):
     try:
         agent = data.agent.lower()
-        if agent not in ["opencode", "hermes", "gemini"]:
+        if agent not in KNOWN_AGENTS:
             return {"status": "error", "message": f"Invalid agent: {agent}"}
         append_audit({"action": "task_routed", "agent": agent, "task_preview": data.task[:50]})
         return {
