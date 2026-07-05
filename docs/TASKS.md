@@ -143,7 +143,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Run the FastAPI server in a background thread; pystray tray icon (Open / App Window / Quit); pywebview window with default-browser fallback. GUI deps optional at runtime.
 - [x] **5.2 Start-on-boot + minimize-to-tray settings**
   Backend `/api/system/startup` GET/PUT managing a Windows startup entry + tray settings; Settings UI.
-- [ ] **5.3 PyInstaller packaging (Windows installer)**
+- [x] **5.3 PyInstaller packaging (Windows installer)** — verified: exe boots, seeds `%LOCALAPPDATA%\AgenticOS`, serves the dashboard.
 - [ ] **5.4 Voice backend: Hey Jarvis wake word (openWakeWord) + Whisper STT** — background listener, `/api/voice/state`, optional deps degrade gracefully.
 - [ ] **5.5 Voice command interpreter** — transcript → LLM-parsed action (schedule/orchestration/journal/skill/navigate…) → confirm → execute.
 - [ ] **5.6 Dashboard voice UI (backend-driven) + settings**

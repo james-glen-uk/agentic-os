@@ -9,10 +9,37 @@ so `python desktop.py` always works.
 import argparse
 import json
 import os
+import shutil
+import sys
 import threading
 import time
 import webbrowser
 from pathlib import Path
+
+# Template dirs to seed into the writable home on first run of a frozen build.
+_SEED_DIRS = ["dashboard", "brain", "skills", "agents", "scheduler", "prompts",
+              "standards", "registry", "bench", "data", "docs"]
+
+
+def _resolve_home() -> Path:
+    """Where runtime state lives. In a packaged build, read-only assets ship
+    inside the bundle (sys._MEIPASS) but writable data must go to a persistent
+    per-user dir, seeded from the bundle on first run."""
+    if getattr(sys, "frozen", False):
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+        home = Path(base) / "AgenticOS"
+        home.mkdir(parents=True, exist_ok=True)
+        bundle = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+        for d in _SEED_DIRS:
+            src, dst = bundle / d, home / d
+            if src.exists() and not dst.exists():
+                shutil.copytree(src, dst)
+        return home
+    return Path(__file__).parent
+
+
+if getattr(sys, "frozen", False):
+    os.environ.setdefault("AGENTIC_OS_HOME", str(_resolve_home()))
 
 BASE_DIR = Path(os.environ.get("AGENTIC_OS_HOME") or Path(__file__).parent).resolve()
 
