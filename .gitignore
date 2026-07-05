@@ -3,6 +3,8 @@ __pycache__/
 .env
 *.egg-info/
 dist/
+build/
+*.whisper
 node_modules/
 .DS_Store
 *.tar.gz

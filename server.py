@@ -833,6 +833,101 @@ def update_settings(data: SettingsUpdate):
     append_audit({"action": "settings_updated"})
     return {"status": "ok"}
 
+# ─── System: start-on-boot & tray (desktop app) ───────────────────
+
+class StartupUpdate(BaseModel):
+    start_on_boot: Optional[bool] = None
+    minimize_to_tray: Optional[bool] = None
+    launch_minimized: Optional[bool] = None
+
+class _RegistryStartupBackend:
+    """Windows: an HKCU\\...\\Run value that launches the app minimized."""
+    RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    VALUE = "AgenticOS"
+
+    def supported(self) -> bool:
+        return os.name == "nt"
+
+    def is_enabled(self) -> bool:
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.RUN_KEY) as k:
+                winreg.QueryValueEx(k, self.VALUE)
+            return True
+        except Exception:
+            return False
+
+    def enable(self, command: str) -> None:
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.RUN_KEY) as k:
+            winreg.SetValueEx(k, self.VALUE, 0, winreg.REG_SZ, command)
+
+    def disable(self) -> None:
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+                winreg.DeleteValue(k, self.VALUE)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+
+class _MemoryStartupBackend:
+    """Non-Windows / tests: no real autostart, tracked in memory."""
+    def __init__(self, supported=False):
+        self._enabled = False
+        self._supported = supported
+    def supported(self) -> bool:
+        return self._supported
+    def is_enabled(self) -> bool:
+        return self._enabled
+    def enable(self, command: str) -> None:
+        self._enabled = True
+    def disable(self) -> None:
+        self._enabled = False
+
+_startup_backend = _RegistryStartupBackend() if os.name == "nt" else _MemoryStartupBackend()
+
+def _startup_command() -> str:
+    import sys
+    if getattr(sys, "frozen", False):  # packaged exe
+        return f'"{sys.executable}" --minimized'
+    pyw = Path(sys.executable).with_name("pythonw.exe")
+    exe = str(pyw) if pyw.exists() else sys.executable
+    return f'"{exe}" "{BASE_DIR / "desktop.py"}" --minimized'
+
+@app.get("/api/system/startup")
+def get_startup():
+    s = load_settings().get("system", {})
+    return {
+        "supported": _startup_backend.supported(),
+        "start_on_boot": _startup_backend.is_enabled(),
+        "minimize_to_tray": s.get("minimize_to_tray", True),
+        "launch_minimized": s.get("launch_minimized", False),
+        "platform": os.name,
+    }
+
+@app.put("/api/system/startup")
+def set_startup(data: StartupUpdate):
+    settings = load_settings()
+    sysc = settings.get("system", {})
+    if data.minimize_to_tray is not None:
+        sysc["minimize_to_tray"] = data.minimize_to_tray
+    if data.launch_minimized is not None:
+        sysc["launch_minimized"] = data.launch_minimized
+    settings["system"] = sysc
+    (BASE_DIR / "data").mkdir(exist_ok=True)
+    atomic_write_json(BASE_DIR / "data" / "settings.json", settings)
+    if data.start_on_boot is not None:
+        if not _startup_backend.supported():
+            raise HTTPException(400, "Start-on-boot is not supported on this platform")
+        if data.start_on_boot:
+            _startup_backend.enable(_startup_command())
+        else:
+            _startup_backend.disable()
+    append_audit({"action": "system_startup_updated", "start_on_boot": data.start_on_boot})
+    return get_startup()
+
 # ─── Routes: Webhooks & Scheduler Events (v0.3.0) ─────────────────
 
 @app.post("/api/webhook")
@@ -2860,6 +2955,174 @@ MANIFEST_JSON = {
 @app.get("/manifest.json")
 def manifest():
     return JSONResponse(content=MANIFEST_JSON)
+
+# ─── "Hey Jarvis" voice: state + command interpreter ──────────────
+# The transcript (from the wake-word service OR a browser mic) is parsed by
+# an LLM into a structured action against the app's own APIs, then confirmed
+# and executed. Full control: schedules, orchestration, journal, skills, etc.
+
+class VoiceCommandRequest(BaseModel):
+    transcript: str
+    execute: Optional[bool] = None  # None → use settings.voice.auto_execute
+
+class VoiceExecuteRequest(BaseModel):
+    action: str
+    params: Optional[dict] = None
+
+VOICE_ACTIONS = {
+    "navigate": "Open a page",
+    "run_skill": "Run a skill",
+    "create_schedule": "Create a scheduled job",
+    "start_orchestration": "Start a multi-agent orchestration",
+    "add_journal": "Add a journal entry",
+    "create_goal": "Create a goal",
+    "create_task": "Create a kanban task",
+    "refresh_news": "Refresh the news oracle",
+    "generate_image": "Generate an image",
+    "none": "No matching action",
+}
+
+def _voice_service():
+    import voice_service
+    return voice_service.get_service(on_transcript=handle_voice_transcript)
+
+def parse_voice_command(transcript: str) -> dict:
+    """LLM-parse a spoken command into {action, params, label}."""
+    skills = [d.name for d in (BASE_DIR / "skills").iterdir()
+              if d.is_dir() and not d.name.startswith("_")] if (BASE_DIR / "skills").exists() else []
+    prompt = (
+        "You convert a spoken command for the 'Agentic OS' app into a single JSON action.\n"
+        f"Available actions: {json.dumps(VOICE_ACTIONS)}\n"
+        f"Available skills: {skills}\n"
+        "Params by action: navigate{page}, run_skill{skill,input?}, "
+        "create_schedule{name,skill,cron}, start_orchestration{goal,max_subtasks?}, "
+        "add_journal{text}, create_goal{title,description?}, create_task{title,body?}, "
+        "refresh_news{}, generate_image{prompt,preset?}.\n"
+        "cron is 5-field. Pages: dashboard, chat, skills, news, orchestration, kanban, "
+        "goals, journal, artifacts, bench, cost, settings.\n"
+        f'Command: "{transcript}"\n'
+        'Reply with ONLY JSON: {"action": "...", "params": {...}, "label": "short human summary"}. '
+        'If nothing fits, action="none".'
+    )
+    chain = resolve_agent_chain("auto", primary=_suggest_agent(transcript))
+    result = execute_with_fallback(chain, prompt)
+    parsed = {"action": "none", "params": {}, "label": "", "transcript": transcript,
+              "no_agent": not result["agent"]}
+    if result["agent"]:
+        m = re.search(r"\{.*\}", result["output"], re.DOTALL)
+        if m:
+            try:
+                data = json.loads(m.group(0))
+                action = str(data.get("action", "none"))
+                if action in VOICE_ACTIONS:
+                    parsed.update({"action": action, "params": data.get("params", {}) or {},
+                                   "label": str(data.get("label", ""))[:160]})
+            except Exception:
+                log.warning("voice command parse failed", exc_info=True)
+    return parsed
+
+def execute_voice_action(action: str, params: dict) -> dict:
+    """Map a parsed action onto the existing app functions."""
+    params = params or {}
+    try:
+        if action == "navigate":
+            return {"status": "ok", "action": action, "navigate": params.get("page", "dashboard")}
+        if action == "run_skill":
+            skill = params.get("skill", "")
+            if not (BASE_DIR / "skills" / skill).exists():
+                return {"status": "error", "message": f"Unknown skill: {skill}"}
+            res = run_skill(skill, SkillRunRequest(input=params.get("input", ""), agent="auto"))
+            return {"status": "ok", "action": action, "skill": skill, "artifact_id": res.get("artifact_id")}
+        if action == "create_schedule":
+            job = create_job(ScheduleJobRequest(name=params.get("name", "Voice job"),
+                             skill=params.get("skill", "heartbeat"),
+                             cron=params.get("cron", "0 9 * * *"), enabled=True))
+            return {"status": "ok", "action": action, "job": job["id"]}
+        if action == "start_orchestration":
+            run = orchestrate(OrchestrateRequest(goal=params.get("goal", ""),
+                              max_subtasks=params.get("max_subtasks")))
+            return {"status": "ok", "action": action, "run_id": run["id"]}
+        if action == "add_journal":
+            date = get_timestamp()[:10]
+            path = BASE_DIR / "brain" / "journal" / f"{date}.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            existing = path.read_text(encoding="utf-8") if path.exists() else f"# {date}\n"
+            path.write_text(existing + f"\n- {params.get('text', '')}\n", encoding="utf-8")
+            return {"status": "ok", "action": action, "date": date}
+        if action == "create_goal":
+            goal = create_goal(GoalCreate(title=params.get("title", "Voice goal"),
+                               description=params.get("description", ""),
+                               category=params.get("category", "general"), target_date=""))
+            return {"status": "ok", "action": action, "goal": goal["id"]}
+        if action == "create_task":
+            task = kanban_create_task(KanbanTaskCreate(title=params.get("title", "Voice task"),
+                    body=params.get("body", ""), status="triage", priority="medium", assignee=""))
+            return {"status": "ok", "action": action, "task": task["id"]}
+        if action == "refresh_news":
+            data = refresh_news()
+            return {"status": "ok", "action": action, "topics": len(data.get("topics", []))}
+        if action == "generate_image":
+            res = media_generate_image(ImageGenRequest(prompt=params.get("prompt", ""),
+                                       preset=params.get("preset", "")))
+            return {"status": res.get("status", "ok"), "action": action,
+                    "artifact_id": res.get("artifact_id"), "message": res.get("message", "")}
+        return {"status": "none", "action": action, "message": "No matching action."}
+    except HTTPException as e:
+        return {"status": "error", "action": action, "message": e.detail}
+    except Exception as e:
+        return {"status": "error", "action": action, "message": str(e)}
+
+def handle_voice_transcript(transcript: str) -> dict:
+    """Called by the wake-word service for each recognized command."""
+    parsed = parse_voice_command(transcript)
+    auto = bool(load_settings().get("voice", {}).get("auto_execute", False))
+    if parsed.get("no_agent"):
+        return {"status": "no_agent", **parsed}
+    if parsed["action"] == "none":
+        return {"status": "unrecognized", **parsed}
+    if auto:
+        result = execute_voice_action(parsed["action"], parsed["params"])
+        return {"status": "executed", "parsed": parsed, "result": result}
+    return {"status": "pending_confirm", **parsed}  # UI confirms, then /api/voice/execute
+
+@app.get("/api/voice/state")
+def voice_state():
+    return _voice_service().status()
+
+@app.post("/api/voice/enable")
+def voice_enable():
+    return _voice_service().start()
+
+@app.post("/api/voice/disable")
+def voice_disable():
+    return _voice_service().stop()
+
+@app.post("/api/voice/command")
+def voice_command(req: VoiceCommandRequest):
+    """Interpret a transcript (from wake word or browser mic). Confirms unless
+    execute=true or settings.voice.auto_execute."""
+    transcript = (req.transcript or "").strip()
+    if not transcript:
+        raise HTTPException(400, "Empty transcript")
+    parsed = parse_voice_command(transcript)
+    should_exec = req.execute if req.execute is not None else \
+        bool(load_settings().get("voice", {}).get("auto_execute", False))
+    if parsed.get("no_agent"):
+        return {"status": "no_agent",
+                "message": "No agent available to understand the command (all offline, or free-only mode excludes Claude).",
+                **parsed}
+    if parsed["action"] == "none":
+        return {"status": "unrecognized", **parsed}
+    if should_exec:
+        return {"status": "executed", "parsed": parsed,
+                "result": execute_voice_action(parsed["action"], parsed["params"])}
+    return {"status": "pending_confirm", **parsed}
+
+@app.post("/api/voice/execute")
+def voice_execute(req: VoiceExecuteRequest):
+    if req.action not in VOICE_ACTIONS:
+        raise HTTPException(400, "Unknown action")
+    return execute_voice_action(req.action, req.params or {})
 
 SERVICE_WORKER_JS = """
 self.addEventListener('install', (e) => {

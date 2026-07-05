@@ -136,6 +136,18 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Every feature claim verified against code; new features documented; comparison table updated; add PRD-V2/TASKS links.
   **Done when:** zero documented-but-unimplemented features remain.
 
+## Phase 5 — Desktop App + "Hey Jarvis" Voice Assistant `P1` (post-PRD, user-requested)
+
+- [x] **5.1 Desktop app: tray + window + server-in-process**
+  Files: new `desktop.py`, `requirements-desktop.txt`, `tests/test_desktop.py`
+  Run the FastAPI server in a background thread; pystray tray icon (Open / App Window / Quit); pywebview window with default-browser fallback. GUI deps optional at runtime.
+- [x] **5.2 Start-on-boot + minimize-to-tray settings**
+  Backend `/api/system/startup` GET/PUT managing a Windows startup entry + tray settings; Settings UI.
+- [x] **5.3 PyInstaller packaging (Windows installer)** — verified: exe boots, seeds `%LOCALAPPDATA%\AgenticOS`, serves the dashboard.
+- [ ] **5.4 Voice backend: Hey Jarvis wake word (openWakeWord) + Whisper STT** — background listener, `/api/voice/state`, optional deps degrade gracefully.
+- [ ] **5.5 Voice command interpreter** — transcript → LLM-parsed action (schedule/orchestration/journal/skill/navigate…) → confirm → execute.
+- [x] **5.6 Dashboard voice UI (backend-driven) + settings**
+
 ---
 
 ## Dependency map

@@ -1,0 +1,6 @@
+-r requirements.txt
+# Desktop app (system tray + native window). All optional at runtime —
+# desktop.py falls back to the default browser if these are absent.
+pystray>=0.19.5
+Pillow>=10.0.0
+pywebview>=5.0
