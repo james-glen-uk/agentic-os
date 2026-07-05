@@ -101,7 +101,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Roles with live assignment/status, per-run drill-down into subtask outputs.
   **Done when:** an orchestration run is watchable live in the UI.
 
-- [ ] **3.3 Idea→Spec→Build→Preview pipeline** *(E2)*
+- [x] **3.3 Idea→Spec→Build→Preview pipeline** *(E2)*
   Files: `server.py` (extend kanban `specify` 1170–1180; new build endpoint), new `workspace/` sandbox convention, `dashboard/pages/kanban.js` (pipeline actions), preview pane page
   Build = Claude Code headless in `workspace/<task-id>/` only; logs stored per task (browsable like `session-replay.js`); preview renders produced files/static output.
   **Done when:** idea card → editable AI spec → sandboxed build → preview in dashboard; write-outside-sandbox attempt fails a test.

@@ -71,6 +71,8 @@ const api = {
   dispatchKanban: () => api.post('/api/kanban/dispatch', {}),
   specifyKanbanTask: (id) => api.post(`/api/kanban/tasks/${encodeURIComponent(id)}/specify`, {}),
   decomposeKanbanTask: (id) => api.post(`/api/kanban/tasks/${encodeURIComponent(id)}/decompose`, {}),
+  buildKanbanTask: (id) => api.post(`/api/kanban/tasks/${encodeURIComponent(id)}/build`, {}),
+  previewKanbanBuild: (id, file) => api.get(`/api/kanban/tasks/${encodeURIComponent(id)}/preview${file ? '?file=' + encodeURIComponent(file) : ''}`),
   // Goals
   getGoals: () => api.get('/api/goals'),
   createGoal: (data) => api.post('/api/goals', data),

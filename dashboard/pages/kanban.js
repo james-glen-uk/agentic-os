@@ -209,11 +209,64 @@ function showKanbanDetail(id) {
       <span>📅 <strong>${task.created || 'N/A'}</strong></span>
       ${task.completed_at ? `<span>✅ <strong>${task.completed_at}</strong></span>` : ''}
     </div>
+    ${task.spec ? `<details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12px;font-weight:600">📋 Spec</summary><pre style="white-space:pre-wrap;font-size:11px;background:var(--bg-secondary);padding:10px;border-radius:8px;max-height:30vh;overflow:auto">${escapeHtml(task.spec)}</pre></details>` : ''}
+    ${task.build_status ? `
+      <div style="margin-bottom:12px;padding:10px;background:var(--bg-secondary);border-radius:8px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">🔨 Build: <span style="color:${task.build_status === 'completed' ? 'var(--green)' : task.build_status === 'failed' ? 'var(--red)' : 'var(--accent)'}">${task.build_status}</span>${task.build_cost ? ` · $${task.build_cost}` : ''}</div>
+        ${(task.build_files || []).length ? `<div style="font-size:11px;color:var(--text-secondary)">${task.build_files.map(f => `<a href="#" onclick="event.preventDefault();previewBuildFile('${task.id}','${escapeHtml(f.path)}')" style="color:var(--accent);margin-right:10px">📄 ${escapeHtml(f.path)}</a>`).join('')}</div>` : ''}
+        ${task.build_output ? `<pre style="white-space:pre-wrap;font-size:11px;margin-top:8px;max-height:20vh;overflow:auto">${escapeHtml(task.build_output.slice(0, 800))}</pre>` : ''}
+      </div>` : ''}
   `, `
-    ${task.status !== 'done' ? `<button class="btn btn-sm btn-primary" onclick="completeKanbanTask('${task.id}')">✅ Mark Done</button>` : ''}
+    ${task.status === 'triage' ? `<button class="btn btn-sm btn-primary" onclick="specifyTask('${task.id}')">📋 Specify</button>` : ''}
+    ${task.build_status !== 'running' ? `<button class="btn btn-sm" onclick="buildTask('${task.id}')">🔨 Build</button>` : `<button class="btn btn-sm" disabled>⏳ Building…</button>`}
+    ${task.status !== 'done' ? `<button class="btn btn-sm btn-primary" onclick="completeKanbanTask('${task.id}')">✅ Done</button>` : ''}
     ${task.status !== 'blocked' ? `<button class="btn btn-sm btn-ghost" onclick="blockKanbanTask('${task.id}')">🚫 Block</button>` : `<button class="btn btn-sm btn-ghost" onclick="unblockKanbanTask('${task.id}')">🔓 Unblock</button>`}
-    <button class="btn btn-sm btn-ghost" onclick="deleteKanbanTask('${task.id}')" style="color:var(--red)">🗑 Delete</button>
+    <button class="btn btn-sm btn-ghost" onclick="deleteKanbanTask('${task.id}')" style="color:var(--red)">🗑</button>
   `);
+}
+
+async function specifyTask(id) {
+  showToast('Drafting spec…', 'info');
+  try {
+    await api.specifyKanbanTask(id);
+    closeModal();
+    await renderKanban();
+    showKanbanDetail(id);
+    showToast('Spec drafted', 'success');
+  } catch (err) {
+    showToast('Specify failed: ' + err.message, 'error');
+  }
+}
+
+async function buildTask(id) {
+  showToast('Build started — Claude Code is working in a sandbox…', 'info');
+  try {
+    await api.buildKanbanTask(id);
+    closeModal();
+    // Poll until the build finishes, then reopen the detail
+    const poll = setInterval(async () => {
+      const t = await api.getKanbanTask(id);
+      if (t.build_status && t.build_status !== 'running') {
+        clearInterval(poll);
+        await renderKanban();
+        showKanbanDetail(id);
+        showToast(`Build ${t.build_status}`, t.build_status === 'completed' ? 'success' : 'error');
+      }
+    }, 2500);
+  } catch (err) {
+    showToast('Build failed: ' + err.message, 'error');
+  }
+}
+
+async function previewBuildFile(id, file) {
+  try {
+    const r = await api.previewKanbanBuild(id, file);
+    showModal(`📄 ${escapeHtml(file)}`, `
+      <pre style="white-space:pre-wrap;font-size:12px;max-height:60vh;overflow:auto;background:var(--bg-secondary);padding:12px;border-radius:8px">${escapeHtml(r.content)}</pre>
+    `, `<button class="btn btn-sm" onclick="showKanbanDetail('${id}')">← Back</button><button class="btn btn-sm btn-primary" onclick="closeModal()">Close</button>`);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 async function completeKanbanTask(id) {

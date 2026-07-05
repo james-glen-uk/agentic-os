@@ -148,11 +148,22 @@ def write_file(path: Path, content: str):
 
 def atomic_write_json(path: Path, obj) -> None:
     """Write JSON via a temp file + os.replace so concurrent readers never
-    see a truncated/empty file (background threads write while the UI reads)."""
+    see a truncated/empty file (background threads write while the UI reads).
+
+    On Windows os.replace raises PermissionError if a reader momentarily holds
+    the destination open, so retry briefly on that transient sharing violation."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + f".tmp-{uuid.uuid4().hex[:8]}")
     tmp.write_text(json.dumps(obj, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    for attempt in range(10):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 9:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.02)
 
 def list_dir(path: Path):
     if not path.exists():
@@ -2017,15 +2028,129 @@ def kanban_dispatch():
 
 @app.post("/api/kanban/tasks/{task_id}/specify")
 def kanban_specify_task(task_id: str):
+    """Idea → Spec: draft an actionable spec from the idea (CTO role), store
+    it on the task, and advance triage → todo. The spec is human-editable."""
     path = KANBAN_DIR / f"{task_id}.json"
     if not path.exists():
         raise HTTPException(404, "Task not found")
     task = json.loads(path.read_text(encoding="utf-8"))
+    idea = f"{task.get('title', '')}\n\n{task.get('body', '')}".strip()
+    result = _run_role_task(
+        "cto", f"Write a concrete build spec for: {task.get('title', '')}",
+        "Produce a short, actionable technical spec a builder can execute without "
+        f"further questions — files to create, key behavior, and acceptance criteria.\n\nIdea:\n{idea}",
+    )
+    if result["agent"]:
+        task["spec"] = result["output"]
     if task.get("status") == "triage":
         task["status"] = "todo"
-        task["updated"] = get_timestamp()
-        save_kanban_task(task)
+    task["updated"] = get_timestamp()
+    save_kanban_task(task)
     return task
+
+# ─── Idea → Spec → Build → Preview (sandboxed Claude Code builds) ──
+
+WORKSPACE_DIR = BASE_DIR / "workspace"
+
+def _sandbox_for(task_id: str) -> Path:
+    if not _ID8_RE.match(task_id or ""):
+        raise HTTPException(400, "Invalid task id")
+    return (WORKSPACE_DIR / task_id).resolve()
+
+def _sandbox_files(sandbox: Path) -> list:
+    files = []
+    if sandbox.exists():
+        for f in sorted(sandbox.rglob("*")):
+            if f.is_file():
+                files.append({"path": str(f.relative_to(sandbox)).replace("\\", "/"),
+                              "size": f.stat().st_size})
+    return files
+
+def _run_build_agent(sandbox: Path, prompt: str) -> dict:
+    """Run Claude Code headless with cwd pinned to the sandbox. Auto-accepts
+    file edits so the build can write, confined to the workspace dir."""
+    cfg = load_agent_config("claude")
+    cmd = ["claude", "-p", prompt, "--output-format", "json",
+           "--permission-mode", "acceptEdits",
+           "--max-turns", str(cfg.get("build_max_turns", 20))]
+    if cfg.get("model"):
+        cmd += ["--model", cfg["model"]]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=cfg.get("build_timeout", 600),
+                           cwd=str(sandbox))
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "output": "⏱ Build timed out.", "cost": 0.0}
+    except FileNotFoundError:
+        return {"ok": False, "output": "⚠ Claude Code CLI not installed.", "cost": 0.0}
+    if r.returncode == 0:
+        try:
+            data = json.loads(r.stdout or "{}")
+            return {"ok": True, "output": (data.get("result") or "").strip(),
+                    "cost": float(data.get("total_cost_usd", 0) or 0)}
+        except json.JSONDecodeError:
+            return {"ok": True, "output": (r.stdout or "").strip(), "cost": 0.0}
+    return {"ok": False, "output": (r.stderr or "").strip() or f"claude exit {r.returncode}", "cost": 0.0}
+
+def _run_build(task_id: str):
+    path = KANBAN_DIR / f"{task_id}.json"
+    task = json.loads(path.read_text(encoding="utf-8"))
+    sandbox = _sandbox_for(task_id)
+    sandbox.mkdir(parents=True, exist_ok=True)
+    spec = task.get("spec") or task.get("body") or task.get("title", "")
+    prompt = (
+        "You are building inside an isolated workspace directory (your current "
+        "working directory). Create all files here using relative paths only; do "
+        "not write outside this directory. Implement the following spec fully — no "
+        f"placeholders.\n\n## Spec\n{spec}"
+    )
+    result = _run_build_agent(sandbox, prompt)
+    task = json.loads((KANBAN_DIR / f"{task_id}.json").read_text(encoding="utf-8"))
+    task["build_status"] = "completed" if result["ok"] else "failed"
+    task["build_output"] = result["output"][:4000]
+    task["build_cost"] = round(result["cost"], 4)
+    task["build_files"] = _sandbox_files(sandbox)
+    task["build_finished"] = get_timestamp()
+    task["status"] = "done" if result["ok"] else "blocked"
+    task["updated"] = get_timestamp()
+    save_kanban_task(task)
+    if result["cost"]:
+        try:
+            record_cost({"agent": "claude", "tokens": 0, "cost": result["cost"], "model": "claude-build"})
+        except Exception:
+            pass
+    append_audit({"action": "kanban_build", "task_id": task_id,
+                  "status": task["build_status"], "files": len(task["build_files"])})
+
+@app.post("/api/kanban/tasks/{task_id}/build")
+def kanban_build_task(task_id: str):
+    """Spec → Build: run Claude Code headless in workspace/<task_id>/."""
+    path = KANBAN_DIR / f"{task_id}.json"
+    if not path.exists():
+        raise HTTPException(404, "Task not found")
+    _sandbox_for(task_id)  # validates id
+    task = json.loads(path.read_text(encoding="utf-8"))
+    task["build_status"] = "running"
+    task["build_started"] = get_timestamp()
+    task["status"] = "in_progress"
+    task["updated"] = get_timestamp()
+    save_kanban_task(task)
+    threading.Thread(target=_run_build, args=(task_id,), daemon=True).start()
+    return task
+
+@app.get("/api/kanban/tasks/{task_id}/preview")
+def kanban_preview(task_id: str, file: str = ""):
+    """Build → Preview: list files produced in the sandbox, or read one."""
+    sandbox = _sandbox_for(task_id)
+    if file:
+        target = (sandbox / file).resolve()
+        if target != sandbox and not target.is_relative_to(sandbox):
+            raise HTTPException(400, "Path escapes the task sandbox")
+        if not target.is_file():
+            raise HTTPException(404, "File not found")
+        return {"file": file, "content": target.read_text(encoding="utf-8", errors="replace")[:20000],
+                "size": target.stat().st_size}
+    return {"task_id": task_id, "files": _sandbox_files(sandbox)}
 
 @app.post("/api/kanban/tasks/{task_id}/decompose")
 def kanban_decompose_task(task_id: str):
