@@ -49,7 +49,12 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
-app = FastAPI(title="Agentic OS", version="1.1.0", lifespan=lifespan)
+try:
+    APP_VERSION = (Path(__file__).parent / "VERSION").read_text(encoding="utf-8").strip() or "2.0.0"
+except Exception:
+    APP_VERSION = "2.0.0"
+
+app = FastAPI(title="Agentic OS", version=APP_VERSION, lifespan=lifespan)
 
 # ─── Platform-aware agent CLI locations ──────────────────────────
 
@@ -348,6 +353,7 @@ def get_status():
                             if p.is_dir() and not p.name.startswith("_")])
     return {
         "status": "healthy",
+        "version": APP_VERSION,
         "agents": agents,
         "skills_count": skills_count,
         "uptime": time.time(),
