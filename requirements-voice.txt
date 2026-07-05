@@ -1,0 +1,7 @@
+-r requirements.txt
+# "Hey Jarvis" voice assistant (optional add-on). Without these the voice
+# service reports 'unavailable' and the rest of the app is unaffected.
+openwakeword>=0.6.0
+faster-whisper>=1.0.0
+sounddevice>=0.4.6
+numpy>=1.24.0
