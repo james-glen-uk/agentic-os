@@ -1594,6 +1594,103 @@ def media_presets():
     return {"presets": list(IMAGE_STYLE_PRESETS.keys()), "provider": provider,
             "configured": bool(provider)}
 
+# ─── Backend Benchmark ("Goldie-bench") ───────────────────────────
+# Runs a small eval set across agents, scoring keyword expectations,
+# and records score/latency/cost per backend. The leaderboard order
+# feeds routing.prefer=quality.
+
+BENCH_TASKS_DIR = BASE_DIR / "bench" / "tasks"
+BENCH_RESULTS_FILE = BASE_DIR / "data" / "bench-results.json"
+
+class BenchRunRequest(BaseModel):
+    agents: Optional[list] = None
+    tasks_limit: Optional[int] = None
+
+def load_bench_tasks() -> list:
+    tasks = []
+    if BENCH_TASKS_DIR.exists():
+        for f in sorted(BENCH_TASKS_DIR.glob("*.json")):
+            try:
+                tasks.append(json.loads(f.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+    return tasks
+
+def _score_output(output: str, expect: list) -> float:
+    if not expect:
+        return 0.0
+    low = (output or "").lower()
+    hits = sum(1 for e in expect if str(e).lower() in low)
+    return round(100.0 * hits / len(expect), 1)
+
+def run_bench(agents: Optional[list] = None, tasks_limit: Optional[int] = None) -> dict:
+    tasks = load_bench_tasks()
+    if tasks_limit:
+        tasks = tasks[:tasks_limit]
+    if agents:
+        agents = [a for a in agents if a in KNOWN_AGENTS]
+    else:
+        agents = [a for a in KNOWN_AGENTS if check_agent(a)["status"] == "online"]
+
+    per_agent = {}
+    for agent in agents:
+        scores, latencies, cost_start = [], [], _total_claude_spend()
+        rows = []
+        for t in tasks:
+            t0 = time.time()
+            out = execute_agent(agent, t["prompt"])
+            dt = round(time.time() - t0, 2)
+            sc = _score_output(out, t.get("expect", []))
+            scores.append(sc)
+            latencies.append(dt)
+            rows.append({"task": t["id"], "score": sc, "latency": dt,
+                         "output_preview": (out or "")[:120]})
+        cost = round(_total_claude_spend() - cost_start, 4) if agent == "claude" else 0.0
+        per_agent[agent] = {
+            "agent": agent,
+            "avg_score": round(sum(scores) / len(scores), 1) if scores else 0.0,
+            "avg_latency": round(sum(latencies) / len(latencies), 2) if latencies else 0.0,
+            "cost": cost, "runs": len(tasks), "tasks": rows,
+        }
+    leaderboard = sorted(per_agent.values(),
+                         key=lambda r: (-r["avg_score"], r["avg_latency"], r["cost"]))
+    result = {"ran_at": get_timestamp(), "agents": agents,
+              "task_count": len(tasks), "leaderboard": leaderboard,
+              "quality_order": [r["agent"] for r in leaderboard]}
+    BENCH_RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(BENCH_RESULTS_FILE, result)
+    append_audit({"action": "bench_run", "agents": agents, "tasks": len(tasks)})
+    return result
+
+def _bench_quality_order() -> list:
+    if BENCH_RESULTS_FILE.exists():
+        try:
+            order = json.loads(BENCH_RESULTS_FILE.read_text(encoding="utf-8-sig")).get("quality_order")
+            if order:
+                # Append any known agents not covered by the last bench run
+                return order + [a for a in KNOWN_AGENTS if a not in order]
+        except Exception:
+            pass
+    return []
+
+@app.get("/api/bench/tasks")
+def bench_tasks():
+    return {"tasks": load_bench_tasks()}
+
+@app.post("/api/bench/run")
+def bench_run(req: Optional[BenchRunRequest] = None):
+    agents = req.agents if req else None
+    limit = req.tasks_limit if req else None
+    if not load_bench_tasks():
+        raise HTTPException(400, "No bench tasks defined in bench/tasks/")
+    return run_bench(agents=agents, tasks_limit=limit)
+
+@app.get("/api/bench/results")
+def bench_results():
+    if not BENCH_RESULTS_FILE.exists():
+        return {"leaderboard": [], "ran_at": None}
+    return json.loads(BENCH_RESULTS_FILE.read_text(encoding="utf-8-sig"))
+
 # ─── Fallback Chain Engine ────────────────────────────────────────
 # execute_agent() reports failures as human-readable strings (v0.3.0
 # style) rather than raising, so the chain engine detects them by the
@@ -1650,7 +1747,8 @@ def resolve_agent_chain(requested: str = "auto", primary: str = "") -> list:
     """
     routing = load_settings().get("routing", {})
     if routing.get("prefer") == "quality":
-        base = ["claude", "opencode", "gemini", "hermes"]
+        # Prefer the benchmark leaderboard order if available, else a default.
+        base = _bench_quality_order() or ["claude", "opencode", "gemini", "hermes"]
     else:
         base = ["opencode", "gemini", "hermes", "claude"]
     chain = []

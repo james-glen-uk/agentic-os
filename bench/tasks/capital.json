@@ -1,0 +1,6 @@
+{
+  "id": "capital",
+  "name": "World knowledge",
+  "prompt": "What is the capital of France? Answer with one word.",
+  "expect": ["paris"]
+}

@@ -17,6 +17,7 @@ data/scheduler-history.json
 data/error-log.json
 data/circuit-breaker.json
 data/memory.db
+data/bench-results.json
 data/kanban/*.json
 data/artifacts/
 data/news/

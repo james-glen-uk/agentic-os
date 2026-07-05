@@ -126,7 +126,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Export excludes secrets/runtime/backups; import validates, reports missing deps (CLIs, keys, feeds) with instructions, never overwrites existing secrets.
   **Done when:** export→wipe-clone→import round-trip test passes with a dependency report.
 
-- [ ] **4.2 Backend bench + leaderboard** *(H2)*
+- [x] **4.2 Backend bench + leaderboard** *(H2)*
   Files: new `bench/tasks/*.json`, `server.py` (new `/api/bench/run`, `/api/bench/results`), new `dashboard/pages/bench.js` (extend `learning-analytics.js` chart patterns)
   Bench set runs across healthy agents; leaderboard: score/latency/cost; results exposed to router as `prefer: quality` ordering input (feeds 1.4).
   **Done when:** one command benches all healthy agents and the leaderboard renders; routing order observably reflects results.

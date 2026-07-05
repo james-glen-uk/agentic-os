@@ -114,6 +114,10 @@ const api = {
   // News Oracle
   getNewsTopics: (date) => api.get(`/api/news/topics${date ? '?date=' + encodeURIComponent(date) : ''}`),
   refreshNews: () => api.post('/api/news/refresh', {}),
+  // Benchmark
+  getBenchTasks: () => api.get('/api/bench/tasks'),
+  runBench: (agents) => api.post('/api/bench/run', agents ? { agents } : {}),
+  getBenchResults: () => api.get('/api/bench/results'),
   // Orchestration
   getRoles: () => api.get('/api/roles'),
   startOrchestration: (goal, max_subtasks) => api.post('/api/orchestrate', { goal, max_subtasks }),
