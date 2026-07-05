@@ -50,8 +50,13 @@ const api = {
   updateSettings: (settings) => api.put('/api/settings', { settings }),
   getStandards: () => api.get('/api/standards'),
   discoverStandards: () => api.post('/api/standards/discover'),
-  chat: (agent, message, controller) => api.post('/api/chat', { agent, message }, controller),
+  chat: (agent, message, conversationId, controller) =>
+    api.post('/api/chat', { agent, message, conversation_id: conversationId || undefined }, controller),
   getChatHistory: () => api.get('/api/chat/history'),
+  getConversations: () => api.get('/api/conversations'),
+  createConversation: (title) => api.post('/api/conversations', { title }),
+  getConversation: (id) => api.get(`/api/conversations/${encodeURIComponent(id)}`),
+  deleteConversation: (id) => api.del(`/api/conversations/${encodeURIComponent(id)}`),
   // Kanban
   getKanbanBoard: (status) => api.get(status ? `/api/kanban/board?status=${encodeURIComponent(status)}` : '/api/kanban/board'),
   getKanbanTask: (id) => api.get(`/api/kanban/tasks/${encodeURIComponent(id)}`),

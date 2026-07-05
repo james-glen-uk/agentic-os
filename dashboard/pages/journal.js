@@ -98,6 +98,7 @@ async function loadJournalEntry(date) {
   } catch (err) {
     textarea.value = '';
   }
+  if (typeof loadJournalSubmenu === 'function') loadJournalSubmenu();
 }
 
 async function loadJournalEntries() {
@@ -136,6 +137,31 @@ async function loadJournalEntries() {
   } catch (err) {
     showToast('Failed to load entries: ' + err.message, 'error');
   }
+}
+
+async function loadJournalSubmenu() {
+  const list = document.getElementById('secondaryList');
+  if (!list) return;
+  list.innerHTML = renderSkeleton(3);
+  try {
+    const data = await api.getJournalEntries();
+    const entries = data.entries || [];
+    list.innerHTML = entries.length ? entries.slice(0, 30).map(e => `
+      <div class="secondary-item ${e.date === journalCurrentDate ? 'active' : ''}" onclick="loadJournalEntry('${e.date}');const p=document.getElementById('journalDatePicker');if(p)p.value='${e.date}';">
+        <div class="secondary-item-title mono">${e.date}</div>
+      </div>
+    `).join('') : `<div class="empty-state-desc">No entries yet</div>`;
+  } catch {
+    list.innerHTML = `<div class="empty-state-desc">Failed to load entries</div>`;
+  }
+}
+
+function journalSubmenuNewToday() {
+  const today = new Date().toISOString().split('T')[0];
+  const picker = document.getElementById('journalDatePicker');
+  if (picker) picker.value = today;
+  loadJournalEntry(today);
+  loadJournalSubmenu();
 }
 
 async function searchJournal() {

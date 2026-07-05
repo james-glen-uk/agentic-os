@@ -31,6 +31,7 @@ async function renderAgentHealth() {
   if (document.getElementById('healthAutoRefresh')?.checked) {
     startHealthAutoRefresh();
   }
+  window.__pageUnload = stopHealthAutoRefresh;
 }
 
 function startHealthAutoRefresh() {
