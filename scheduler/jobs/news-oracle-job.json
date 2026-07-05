@@ -1,0 +1,8 @@
+{
+  "id": "news-oracle-daily",
+  "name": "News Oracle Refresh",
+  "skill": "news-oracle",
+  "cron": "0 7 * * *",
+  "enabled": true,
+  "description": "Fetch RSS feeds and cluster into ranked trending topics every morning"
+}

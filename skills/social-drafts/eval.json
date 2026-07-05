@@ -1,0 +1,8 @@
+{
+  "criteria": [
+    { "name": "platform_fit", "weight": 0.3 },
+    { "name": "hook_strength", "weight": 0.3 },
+    { "name": "tone_variety", "weight": 0.2 },
+    { "name": "source_linking", "weight": 0.2 }
+  ]
+}

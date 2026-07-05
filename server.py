@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -34,7 +35,8 @@ async def lifespan(app: FastAPI):
     global _scheduler_instance
     log_agent_cli_table(probe_agent_clis())
     try:
-        from scheduler.scheduler import CronScheduler
+        from scheduler.scheduler import CronScheduler, on_event
+        on_event(_handle_scheduler_event)
         _scheduler_instance = CronScheduler()
         _scheduler_instance.start()
         log.info("Event-driven scheduler started")
@@ -111,6 +113,7 @@ class BrainUpdate(BaseModel):
 class SkillRunRequest(BaseModel):
     input: Optional[str] = ""
     agent: Optional[str] = "auto"
+    topic: Optional[str] = ""
 
 class ScheduleJobRequest(BaseModel):
     name: str
@@ -189,6 +192,10 @@ class SecurityHeadersMiddleware:
                     (b"x-xss-protection", b"1; mode=block"),
                     (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
                     (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                    # Always revalidate (ETag/304) so dashboard JS is never
+                    # stale after an update; heuristic caching served old
+                    # files for hours otherwise
+                    (b"cache-control", b"no-cache"),
                 ]
                 # Only add CSP for non-API routes (dashboard HTML)
                 path = scope.get("path", "")
@@ -462,6 +469,20 @@ def run_skill(name: str, req: Optional[SkillRunRequest] = None):
     )
     write_file(path / "learnings.md", existing + new_entry)
 
+    # Persist full output to the artifact library (system of record)
+    artifact_id = None
+    if run_result["agent"]:
+        try:
+            topic = (req.topic if req else "") or ""
+            artifact = save_artifact(
+                skill=name, agent=agent_used, content=response_text,
+                title=f"{name}: {topic}" if topic else "",
+                source_topic=topic,
+            )
+            artifact_id = artifact["id"]
+        except Exception:
+            log.warning("Failed to save artifact for skill run %s", run_id, exc_info=True)
+
     # Log execution
     append_audit({
         "action": "skill_run",
@@ -470,6 +491,7 @@ def run_skill(name: str, req: Optional[SkillRunRequest] = None):
         "requested": agent_choice,
         "fallback_used": run_result["fallback_used"],
         "run_id": run_id,
+        "artifact_id": artifact_id,
         "output_preview": response_text[:100],
     })
 
@@ -481,6 +503,7 @@ def run_skill(name: str, req: Optional[SkillRunRequest] = None):
         "requested_agent": agent_choice,
         "attempts": run_result["attempts"],
         "fallback_used": run_result["fallback_used"],
+        "artifact_id": artifact_id,
         "output": response_text,
         "message": f"Skill '{name}' {'completed via ' + agent_used if run_result['agent'] else 'failed on all agents'}",
     }
@@ -1043,6 +1066,214 @@ def execute_agent(agent: str, message: str) -> str:
         return f"⚠ Agent '{agent}' CLI not installed. Install it and try again."
     except Exception as e:
         return f"⚠ Error communicating with {agent}: {str(e)}"
+
+# ─── News Oracle ──────────────────────────────────────────────────
+
+NEWS_DIR = BASE_DIR / "data" / "news"
+_NEWS_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+def _enrich_topics_with_llm(topics: list) -> list:
+    """Best-effort: ask an agent for one-line summaries per topic."""
+    if not topics:
+        return topics
+    lines = []
+    for t in topics:
+        heads = "; ".join(h["title"] for h in t["headlines"][:4])
+        lines.append(f"{t['rank']}. {t['title']} — headlines: {heads}")
+    prompt = (
+        "For each numbered news topic below, write a one-sentence neutral summary. "
+        "Reply with ONLY a JSON object mapping the topic number (string) to the summary.\n\n"
+        + "\n".join(lines)
+    )
+    try:
+        chain = resolve_agent_chain("auto", primary="gemini")
+        result = execute_with_fallback(chain, prompt)
+        if not result["agent"]:
+            return topics
+        match = re.search(r"\{.*\}", result["output"], re.DOTALL)
+        summaries = json.loads(match.group(0)) if match else {}
+        for t in topics:
+            s = summaries.get(str(t["rank"]))
+            if isinstance(s, str):
+                t["summary"] = s.strip()
+    except Exception:
+        log.warning("LLM topic enrichment failed; keeping heuristic topics", exc_info=True)
+    return topics
+
+def refresh_news() -> dict:
+    import news_oracle
+    news_cfg = load_settings().get("news", {})
+    feeds = news_cfg.get("feeds") or news_oracle.DEFAULT_FEEDS
+    entries = news_oracle.fetch_entries(feeds)
+    topics = news_oracle.cluster_topics(entries, max_topics=int(news_cfg.get("max_topics", 10)))
+    if news_cfg.get("use_llm"):
+        topics = _enrich_topics_with_llm(topics)
+    date = get_timestamp()[:10]
+    data = {
+        "date": date,
+        "generated_at": get_timestamp(),
+        "feed_count": len(feeds),
+        "entry_count": len(entries),
+        "topics": topics,
+    }
+    NEWS_DIR.mkdir(parents=True, exist_ok=True)
+    (NEWS_DIR / f"{date}.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    append_audit({"action": "news_refreshed", "topics": len(topics), "entries": len(entries)})
+    return data
+
+@app.post("/api/news/refresh")
+def news_refresh_endpoint():
+    try:
+        return refresh_news()
+    except Exception as e:
+        log_error("news-oracle", str(e), category="system")
+        raise HTTPException(500, f"News refresh failed: {e}")
+
+@app.get("/api/news/topics")
+def news_topics(date: str = ""):
+    if date and not _NEWS_DATE_RE.match(date):
+        raise HTTPException(400, "Invalid date (expected YYYY-MM-DD)")
+    if not NEWS_DIR.exists():
+        return {"topics": [], "date": None, "age_hours": None, "available_dates": []}
+    files = sorted(NEWS_DIR.glob("*.json"), reverse=True)
+    available = [f.stem for f in files]
+    target = NEWS_DIR / f"{date}.json" if date else (files[0] if files else None)
+    if not target or not target.exists():
+        return {"topics": [], "date": date or None, "age_hours": None, "available_dates": available}
+    data = json.loads(target.read_text(encoding="utf-8-sig"))
+    try:
+        generated = datetime.fromisoformat(data.get("generated_at", ""))
+        data["age_hours"] = round((datetime.now(timezone.utc) - generated).total_seconds() / 3600, 1)
+    except Exception:
+        data["age_hours"] = None
+    data["available_dates"] = available
+    return data
+
+# Executable scheduled skills: the stock scheduler only *emits* skill_run
+# events — this listener gives code-backed skills a real implementation.
+EXECUTABLE_SKILLS = {"news-oracle": refresh_news}
+
+def _handle_scheduler_event(event: dict):
+    if event.get("type") != "skill_run" or event.get("status") != "started":
+        return
+    fn = EXECUTABLE_SKILLS.get(event.get("skill", ""))
+    if fn:
+        def _run():
+            try:
+                fn()
+            except Exception:
+                log.warning("Scheduled %s run failed", event.get("skill"), exc_info=True)
+                log_error(event.get("skill", "scheduler"), "scheduled run failed", category="skill")
+        threading.Thread(target=_run, daemon=True).start()
+
+# ─── Artifact Library ─────────────────────────────────────────────
+# Every successful skill run persists its full output here — the
+# system of record, replacing the lossy 500-char learnings preview.
+
+ARTIFACTS_DIR = BASE_DIR / "data" / "artifacts"
+_ARTIFACT_ID_RE = re.compile(r"^[0-9a-f]{8}$")
+
+class ArtifactUpdate(BaseModel):
+    title: Optional[str] = None
+    tags: Optional[list] = None
+    bookmarked: Optional[bool] = None
+
+def save_artifact(skill: str, agent: str, content: str, title: str = "",
+                  artifact_type: str = "markdown", source_topic: str = "",
+                  tags: Optional[list] = None) -> dict:
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    art_id = str(uuid.uuid4())[:8]
+    ext = {"markdown": "md", "text": "txt"}.get(artifact_type, "txt")
+    content_file = f"{art_id}.{ext}"
+    (ARTIFACTS_DIR / content_file).write_text(content, encoding="utf-8")
+    meta = {
+        "id": art_id,
+        "title": title or f"{skill} — {get_timestamp()[:10]}",
+        "skill": skill,
+        "agent": agent,
+        "type": artifact_type,
+        "tags": tags or [],
+        "bookmarked": False,
+        "source_topic": source_topic,
+        "content_file": content_file,
+        "created": get_timestamp(),
+        "size": len(content),
+    }
+    (ARTIFACTS_DIR / f"{art_id}.meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    try:
+        from brain.memory_search import index_text
+        index_text("artifact", f"data/artifacts/{content_file}", meta["title"], content, "artifact")
+    except Exception:
+        log.debug("artifact FTS indexing unavailable", exc_info=True)
+    return meta
+
+def _artifact_meta_path(art_id: str) -> Path:
+    if not _ARTIFACT_ID_RE.match(art_id or ""):
+        raise HTTPException(400, "Invalid artifact id")
+    p = ARTIFACTS_DIR / f"{art_id}.meta.json"
+    if not p.exists():
+        raise HTTPException(404, "Artifact not found")
+    return p
+
+def _artifact_content(meta: dict) -> str:
+    f = ARTIFACTS_DIR / meta.get("content_file", "")
+    return f.read_text(encoding="utf-8", errors="replace") if f.is_file() else ""
+
+@app.get("/api/artifacts")
+def list_artifacts(skill: str = "", tag: str = "", bookmarked: Optional[bool] = None,
+                   q: str = "", limit: int = Query(50, le=200)):
+    if not ARTIFACTS_DIR.exists():
+        return {"artifacts": [], "total": 0}
+    items = []
+    for meta_file in sorted(ARTIFACTS_DIR.glob("*.meta.json"), reverse=True):
+        try:
+            # utf-8-sig: tolerate BOMs in hand-edited metadata
+            meta = json.loads(meta_file.read_text(encoding="utf-8-sig"))
+        except Exception:
+            continue
+        if skill and meta.get("skill") != skill:
+            continue
+        if tag and tag not in meta.get("tags", []):
+            continue
+        if bookmarked is not None and bool(meta.get("bookmarked")) != bookmarked:
+            continue
+        content = _artifact_content(meta)
+        if q and q.lower() not in (meta.get("title", "") + " " + content).lower():
+            continue
+        meta["preview"] = content[:200]
+        items.append(meta)
+        if len(items) >= limit:
+            break
+    return {"artifacts": items, "total": len(items)}
+
+@app.get("/api/artifacts/{art_id}")
+def get_artifact(art_id: str):
+    meta = json.loads(_artifact_meta_path(art_id).read_text(encoding="utf-8-sig"))
+    meta["content"] = _artifact_content(meta)
+    return meta
+
+@app.patch("/api/artifacts/{art_id}")
+def update_artifact(art_id: str, data: ArtifactUpdate):
+    p = _artifact_meta_path(art_id)
+    meta = json.loads(p.read_text(encoding="utf-8-sig"))
+    for field in ("title", "tags", "bookmarked"):
+        val = getattr(data, field)
+        if val is not None:
+            meta[field] = val
+    p.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    append_audit({"action": "artifact_updated", "id": art_id})
+    return meta
+
+@app.delete("/api/artifacts/{art_id}")
+def delete_artifact(art_id: str):
+    p = _artifact_meta_path(art_id)
+    meta = json.loads(p.read_text(encoding="utf-8-sig"))
+    content_file = ARTIFACTS_DIR / meta.get("content_file", "")
+    if content_file.is_file():
+        content_file.unlink()
+    p.unlink()
+    append_audit({"action": "artifact_deleted", "id": art_id})
+    return {"status": "deleted", "id": art_id}
 
 # ─── Fallback Chain Engine ────────────────────────────────────────
 # execute_agent() reports failures as human-readable strings (v0.3.0

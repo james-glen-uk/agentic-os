@@ -65,26 +65,26 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
 
 ## Phase 2 — Content Engine (PRD Epic D) `P0`
 
-- [ ] **2.1 Artifact Library backend** *(D3)* — *first: everything else saves into it*
+- [x] **2.1 Artifact Library backend** *(D3)* — *first: everything else saves into it*
   Files: `server.py` (new `/api/artifacts` GET/PATCH/DELETE + auto-save hook in `/api/skills/{name}/run`), new `data/artifacts/` layout (content file + `meta.json`), `brain/memory_search.py` (index artifacts into FTS5)
   **Done when:** every skill run persists full output as an artifact; list/filter/search/bookmark/tag/delete endpoints tested.
 
-- [ ] **2.2 Artifact Library page** *(D3)*
+- [x] **2.2 Artifact Library page** *(D3)*
   Files: new `dashboard/pages/artifacts.js`, `dashboard/index.html` (nav), `dashboard/api.js`, `styles.css`
   Grid with type-aware preview (markdown render, image, audio/video stubs for Phase 3), bookmark star, tag chips, search box. Follow existing page-module pattern (e.g. `journal.js`).
   **Done when:** artifacts from 2.1 browse/search/bookmark correctly in UI.
 
-- [ ] **2.3 News Oracle skill + job** *(D1)*
+- [x] **2.3 News Oracle skill + job** *(D1)*
   Files: new `skills/news-oracle/` (SKILL.md, eval.json, fetch+cluster logic), new `scheduler/jobs/news-oracle-job.json`, `data/settings.json` (`news.feeds` list with tech/AI defaults), `requirements.txt` (feedparser — per PRD open Q3, default choice)
   Fetch feeds → LLM topic clustering (routed via chain, research-typed ⇒ gemini primary) → `data/news/YYYY-MM-DD.json`. Daily cron + manual trigger via existing `/api/scheduler/trigger/{job_id}`. Retry on failure; stamp data age.
   **Done when:** manual trigger produces ranked topic JSON with sources; job visible/toggleable in scheduler page.
 
-- [ ] **2.4 News page + one-click actions** *(D1, D2)*
+- [x] **2.4 News page + one-click actions** *(D1, D2)*
   Files: `server.py` (new `GET /api/news/topics`), new `dashboard/pages/news.js`, nav wiring
   Topic cards: rank, headlines, source links, data-age badge, buttons **SEO article** / **Social drafts** that invoke 2.5 skills with topic context injected.
   **Done when:** click on a card button → skill runs with topic context → artifact appears in library, linked back to topic.
 
-- [ ] **2.5 SEO article + social drafts skills** *(D2)*
+- [x] **2.5 SEO article + social drafts skills** *(D2)*
   Files: new `skills/seo-article/`, new `skills/social-drafts/` (from `skills/_template/`), prompt templates in `prompts/`
   Accept topic payload (headlines/links/summary) or free-text input. Outputs saved as library drafts — no external posting.
   **Done when:** both runnable standalone from Skills Hub and from news cards; outputs are structured markdown, tested with mocked agent.

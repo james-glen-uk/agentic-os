@@ -32,7 +32,7 @@ const api = {
   updateBrainFile: (name, content) => api.put(`/api/brain/${encodeURIComponent(name)}`, { content }),
   getSkills: () => api.get('/api/skills'),
   getSkill: (name) => api.get(`/api/skills/${encodeURIComponent(name)}`),
-  runSkill: (name, input = '', agent = 'auto') => api.post(`/api/skills/${encodeURIComponent(name)}/run`, { input, agent }),
+  runSkill: (name, input = '', agent = 'auto', topic = '') => api.post(`/api/skills/${encodeURIComponent(name)}/run`, { input, agent, topic }),
   getSkillEval: (name) => api.get(`/api/skills/${encodeURIComponent(name)}/eval`),
   getJobs: () => api.get('/api/scheduler/jobs'),
   createJob: (job) => api.post('/api/scheduler/jobs', job),
@@ -101,6 +101,19 @@ const api = {
   getCircuitBreaker: () => api.get('/api/circuit-breaker'),
   tripCircuitBreaker: (agent) => api.post('/api/circuit-breaker/trip', { agent }),
   resetCircuitBreaker: (agent) => api.post('/api/circuit-breaker/reset', { agent }),
+  // News Oracle
+  getNewsTopics: (date) => api.get(`/api/news/topics${date ? '?date=' + encodeURIComponent(date) : ''}`),
+  refreshNews: () => api.post('/api/news/refresh', {}),
+  // Artifact Library
+  getArtifacts: (params = {}) => {
+    const qs = Object.entries(params)
+      .filter(([, v]) => v !== undefined && v !== '')
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    return api.get(`/api/artifacts${qs ? '?' + qs : ''}`);
+  },
+  getArtifact: (id) => api.get(`/api/artifacts/${encodeURIComponent(id)}`),
+  updateArtifact: (id, data) => api.patch(`/api/artifacts/${encodeURIComponent(id)}`, data),
+  deleteArtifact: (id) => api.del(`/api/artifacts/${encodeURIComponent(id)}`),
   // v0.3.0: PWA
   getManifest: () => api.get('/manifest.json'),
 };
