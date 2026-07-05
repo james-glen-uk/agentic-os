@@ -109,6 +109,11 @@ const api = {
   // News Oracle
   getNewsTopics: (date) => api.get(`/api/news/topics${date ? '?date=' + encodeURIComponent(date) : ''}`),
   refreshNews: () => api.post('/api/news/refresh', {}),
+  // Orchestration
+  getRoles: () => api.get('/api/roles'),
+  startOrchestration: (goal, max_subtasks) => api.post('/api/orchestrate', { goal, max_subtasks }),
+  listOrchestrations: () => api.get('/api/orchestrate'),
+  getOrchestration: (id) => api.get(`/api/orchestrate/${encodeURIComponent(id)}`),
   // Artifact Library
   getArtifacts: (params = {}) => {
     const qs = Object.entries(params)

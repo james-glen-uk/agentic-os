@@ -23,6 +23,8 @@ const NAV = [
   { section: 'Workflow', items: [
     { key: 'news', label: 'News Oracle', breadcrumb: 'Trending topics → one-click content',
       icon: 'M4 5h16v14H4zM8 9h8M8 12h8M8 15h5' },
+    { key: 'orchestration', label: 'Orchestration', breadcrumb: 'Role-based multi-agent runs',
+      icon: 'M12 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM5 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 9v3M12 12 5 15M12 12l7 3' },
     { key: 'kanban', label: 'Kanban Board', breadcrumb: 'Multi-agent task management',
       icon: 'M4 4h4v16H4zM10 4h4v10h-4zM16 4h4v7h-4z' },
     { key: 'goals', label: 'Goals', breadcrumb: 'Project targets and progress',

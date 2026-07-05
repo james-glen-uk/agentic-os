@@ -96,7 +96,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Goal → CEO decomposition → linked subtasks with role/agent assignment → execution via fallback chains (builder ⇒ claude primary) → aggregated result artifact. Guardrails: max depth, max calls, max spend per run (settings).
   **Done when:** test goal produces linked kanban subtasks, runs to aggregated artifact, respects caps.
 
-- [ ] **3.2 Org-chart page** *(E1)*
+- [x] **3.2 Org-chart page** *(E1)*
   Files: new `dashboard/pages/orchestration.js`, nav wiring
   Roles with live assignment/status, per-run drill-down into subtask outputs.
   **Done when:** an orchestration run is watchable live in the UI.
