@@ -45,6 +45,9 @@ const api = {
   getBackups: () => api.get('/api/backups'),
   createBackup: () => api.post('/api/backup'),
   restoreBackup: (file) => api.post('/api/backup/restore', { file }),
+  exportSaveFile: () => api.post('/api/export'),
+  listExports: () => api.get('/api/exports'),
+  importSaveFile: (file, apply) => api.post('/api/import', { file, apply }),
   getPrompts: () => api.get('/api/prompts'),
   getSettings: () => api.get('/api/settings'),
   updateSettings: (settings) => api.put('/api/settings', { settings }),
@@ -111,6 +114,10 @@ const api = {
   // News Oracle
   getNewsTopics: (date) => api.get(`/api/news/topics${date ? '?date=' + encodeURIComponent(date) : ''}`),
   refreshNews: () => api.post('/api/news/refresh', {}),
+  // Benchmark
+  getBenchTasks: () => api.get('/api/bench/tasks'),
+  runBench: (agents) => api.post('/api/bench/run', agents ? { agents } : {}),
+  getBenchResults: () => api.get('/api/bench/results'),
   // Orchestration
   getRoles: () => api.get('/api/roles'),
   startOrchestration: (goal, max_subtasks) => api.post('/api/orchestrate', { goal, max_subtasks }),

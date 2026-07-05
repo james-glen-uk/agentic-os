@@ -121,17 +121,17 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
 
 ## Phase 4 — Sharing, Benchmarking, Polish (PRD Epic H + docs) `P1`
 
-- [ ] **4.1 Save-file export/import** *(H1)*
+- [x] **4.1 Save-file export/import** *(H1)*
   Files: `server.py` (new `/api/export`, `/api/import`), reuse tar logic from `/api/backup` (497–524), `dashboard/pages/backups.js` (export/import UI)
   Export excludes secrets/runtime/backups; import validates, reports missing deps (CLIs, keys, feeds) with instructions, never overwrites existing secrets.
   **Done when:** export→wipe-clone→import round-trip test passes with a dependency report.
 
-- [ ] **4.2 Backend bench + leaderboard** *(H2)*
+- [x] **4.2 Backend bench + leaderboard** *(H2)*
   Files: new `bench/tasks/*.json`, `server.py` (new `/api/bench/run`, `/api/bench/results`), new `dashboard/pages/bench.js` (extend `learning-analytics.js` chart patterns)
   Bench set runs across healthy agents; leaderboard: score/latency/cost; results exposed to router as `prefer: quality` ordering input (feeds 1.4).
   **Done when:** one command benches all healthy agents and the leaderboard renders; routing order observably reflects results.
 
-- [ ] **4.3 README & claims audit** *(Goal 2, Metric)*
+- [x] **4.3 README & claims audit** *(Goal 2, Metric)*
   Files: `README.md`, `AGENTS.md`, `docs/`
   Every feature claim verified against code; new features documented; comparison table updated; add PRD-V2/TASKS links.
   **Done when:** zero documented-but-unimplemented features remain.

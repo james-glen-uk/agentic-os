@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+"/>
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI"/>
   <img src="https://img.shields.io/badge/agents-4-orange.svg" alt="4 Agents"/>
-  <img src="https://img.shields.io/badge/skills-16-purple.svg" alt="16 Skills"/>
+  <img src="https://img.shields.io/badge/skills-19-purple.svg" alt="19 Skills"/>
   <img src="https://img.shields.io/badge/version-v0.3.0-blueviolet.svg" alt="v0.3.0"/>
   <img src="https://img.shields.io/badge/status-stable-brightgreen.svg" alt="Status: Stable"/>
   <a href="https://dev.to/mihir_nmodi_14a06a4019e1/i-built-an-open-source-agent-os-2h30"><img src="https://img.shields.io/badge/dev.to-article-blue.svg" alt="dev.to article"/></a>
@@ -24,7 +24,7 @@ A locally-hosted operating system for AI agents — an open-source GitHub reposi
 | Category | Features |
 |----------|----------|
 | **🤖 4-Agent Engine** | opencode (code/DevOps), Hermes (memory/scheduling), Gemini (research/analysis), Claude Code (complex builds, optional/paid) with keyword routing and real fallback chains |
-| **🧩 16+ Skills** | Executable skill packs with eval scoring, learnings, and score history per run |
+| **🧩 19 Skills** | Executable skill packs with eval scoring, learnings, and score history per run |
 | **🧠 Persistent Memory** | SQLite FTS5 + `brain/` folder — shared context read by all agents at session start |
 | **⏱ Cron Scheduler** | APScheduler-powered jobs — heartbeat, memory consolidation, daily standup, DevOps audit |
 | **💰 Cost Analytics** | Track spending per provider, model, agent. Free-tier alerts prevent surprise bills |
@@ -246,6 +246,27 @@ agentic-os/
 
 ---
 
+## 🆕 What's New in this fork (V2)
+
+Built on top of v0.3.0 — see [`docs/PRD-V2.md`](docs/PRD-V2.md) for the spec and [`docs/TASKS.md`](docs/TASKS.md) for the phased checklist. Every feature below is covered by tests (`pytest`, green on Windows + Linux CI).
+
+| Feature | Description |
+|---------|-------------|
+| **🪟 Runs on Windows** | UTF-8-safe file I/O, `install.ps1`/`start.ps1`, platform-aware agent paths. Fresh-clone setup works on Windows 11, Linux, and macOS |
+| **🧪 Test suite + CI** | ~116 tests via pytest + FastAPI TestClient with isolated runtime state (`AGENTIC_OS_HOME`); GitHub Actions matrix (ubuntu/windows × py3.10/3.12) |
+| **🤖 Claude Code (4th agent)** | Headless `claude -p` backend with cost metering, wired into chat/health/router/cost |
+| **🔀 Real fallback chains** | Every agent call tries an ordered chain honoring circuit-breaker state, agent health, free-only mode, and cost/quality preference — a call fails only when all agents are exhausted |
+| **📦 Artifact Library** | Every skill output is auto-saved (FTS-indexed, taggable, bookmarkable); binary image artifacts supported |
+| **📰 News Oracle** | Daily RSS ingest clustered into ranked trending topics; each topic has one-click **SEO article** and **social drafts** actions |
+| **🏛 Multi-Agent Orchestration** | A goal → CEO decomposition into role subtasks (researcher/cto/builder/reviewer) → fallback-chain execution → aggregated artifact, with a live org-chart page and spend/call guardrails |
+| **🔨 Idea→Build Pipeline** | Kanban tasks get an AI-drafted spec, then Claude Code builds them headless in a per-task `workspace/<id>/` sandbox; preview produced files |
+| **🎙 Voice Control** | Web Speech push-to-talk, intent-matched to a skill/page, always confirmed before acting |
+| **🎨 Image Generation** | Pluggable media-provider adapter (graceful when unconfigured); image artifacts render inline |
+| **📤 Save-File Export/Import** | Share your setup as a bundle — secrets excluded, with a missing-dependency report on import |
+| **🏁 Backend Benchmark** | Score agents on an eval set; the leaderboard feeds quality routing |
+
+---
+
 ## 🆕 What's New in v0.3.0
 
 | Feature | Description |
@@ -278,7 +299,7 @@ agentic-os/
 | **📋 Kanban Board** | Visual task management with 6 columns (triage → todo → ready → in_progress → blocked → done), drag-and-drop, priority labels, filtering, and detail modals with complete/block/unblock actions |
 | **🎯 Goals** | Create and track project targets with progress bars, categories, and target dates. Auto-syncs to `brain/active-projects.md` for agent awareness |
 | **📓 Journal** | Daily markdown journal entries stored as `brain/journal/YYYY-MM-DD.md`. Full-text search, day streak tracking, word count |
-| **❤️ Agent Health** | Real-time dashboard showing online/offline status for all 3 agents (opencode, Hermes, Gemini CLI). Auto-refresh every 5 seconds |
+| **❤️ Agent Health** | Real-time dashboard showing online/offline status for all agents (opencode, Hermes, Gemini CLI, Claude Code). Auto-refresh every 5 seconds |
 | **🧭 Smart Router** | Keyword-based routing engine — type a task description and get an AI-suggested agent with confidence score. Manual override available |
 | **📊 Learning Analytics** | Skill evaluation scores, performance trends, and per-skill detail breakdowns with mini bar charts |
 | **🎬 Session Replay** | Browse and replay past opencode sessions directly from the dashboard. View message content and timestamps |
@@ -357,19 +378,22 @@ Open Agentic OS on your phone — bottom nav bar replaces sidebar, touch targets
 
 | Feature | Claude Agent OS (Video) | Agentic OS (This Project) |
 |---------|------------------------|---------------------------|
-| **Core Agents** | Claude + OpenClaw + Hermes | opencode + Hermes + Gemini CLI |
-| **Cost** | $20/mo (Claude subscription) | **$0 — all free tiers** |
+| **Core Agents** | Claude + OpenClaw + Hermes | opencode + Hermes + Gemini CLI + **Claude Code** |
+| **Cost** | $20/mo (Claude subscription) | **$0 in free-only mode** (Claude Code optional/paid) |
 | **Stack** | Next.js + Tailwind | FastAPI + vanilla JS SPA |
-| **Architecture** | 4 layers | **7 layers** |
-| **Skills System** | Plugin marketplace (2,000+ from Hermes) | 16 curated skills + eval scoring + learnings |
-| **Memory** | Obsidian vault (external) | Built-in brain/ + SQLite FTS5 |
-| **Scheduler** | Not shown | APScheduler cron jobs |
-| **Cost Tracking** | Not shown | Built-in per-provider analytics |
-| **Backup/Restore** | Not shown | One-click tar.gz snapshots |
-| **Audit Trail** | Not shown | Full activity log |
-| **Standards System** | Not shown | Discover/inject conventions |
-| **Client Timeout** | Not shown | 200s AbortController |
-| **Kanban Board** | Yes | **Yes — built-in** with drag-and-drop, priority, block/unblock, filters |
+| **Skills System** | Plugin marketplace (2,000+ from Hermes) | 19 curated skills + eval scoring + learnings |
+| **Memory** | Obsidian vault (external) | Built-in brain/ + SQLite FTS5 + Artifact Library |
+| **News → Content** | Hermes Oracle → SEO/social | **News Oracle → one-click SEO/social**, saved to library |
+| **Orchestration** | CEO/CTO zero-human company | **Role-based orchestration** (CEO decomposition → subtasks → aggregated artifact) |
+| **Ideas → Implementation** | Yes (shown) | **Idea→Spec→Build→Preview** via sandboxed Claude Code |
+| **Voice** | Voice-activated agent | **Push-to-talk** (Web Speech), always confirmed |
+| **Media** | Images / avatar video / music | **Image generation** (pluggable provider); avatar/music are provider stubs |
+| **Model Benchmark** | "Goldie Bench" leaderboard | **Benchmark page** feeding quality routing |
+| **Save File** | Distributable save file | **Export/import** with secrets excluded + dependency report |
+| **Fallback Routing** | Not shown | Ordered chains w/ circuit breaker + free-only mode |
+| **Scheduler / Cost / Backup / Audit** | Not shown | APScheduler · per-provider analytics · tar.gz snapshots · activity log |
+| **Kanban Board** | Yes | **Yes** — drag-and-drop, priority, block/unblock, filters, build pipeline |
+| **Tests / CI** | Not shown | **~116 tests**, GitHub Actions (Windows + Linux) |
 | **Open Source** | No (tutorial only) | **MIT License** |
 
 ---

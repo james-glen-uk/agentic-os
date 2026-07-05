@@ -41,6 +41,8 @@ const NAV = [
       icon: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM16 8l-2.5 6L8 16l2.5-6L16 8z' },
     { key: 'learning-analytics', label: 'Learning Analytics', breadcrumb: 'Skill improvement tracking',
       icon: 'M3 3v18h18M8 17V9M13 17V5M18 17v-6' },
+    { key: 'bench', label: 'Benchmark', breadcrumb: 'Agent leaderboard',
+      icon: 'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3' },
     { key: 'session-replay', label: 'Session Replay', breadcrumb: 'Conversation history playback',
       icon: 'M3 12a9 9 0 1 0 3-6.7M3 4v5h5M10 9l6 3-6 3V9' },
     { key: 'errors', label: 'Error Dashboard', breadcrumb: 'System errors & circuit breaker',

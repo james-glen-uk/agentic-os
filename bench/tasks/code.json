@@ -1,0 +1,6 @@
+{
+  "id": "code",
+  "name": "Code reasoning",
+  "prompt": "Write a Python one-liner that reverses a string named s. Reply with only the code.",
+  "expect": ["[::-1]"]
+}
