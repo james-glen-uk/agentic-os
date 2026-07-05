@@ -91,7 +91,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
 
 ## Phase 3 — Orchestration, Media, Voice (PRD Epics E, F, G) `P1`
 
-- [ ] **3.1 Role definitions + orchestrator API** *(E1)*
+- [x] **3.1 Role definitions + orchestrator API** *(E1)*
   Files: new `agents/roles/*.md` (ceo, cto, researcher, builder, reviewer), `server.py` (new `POST /api/orchestrate`), reuse kanban `decompose` (1182–1209) + `/api/kanban/links`
   Goal → CEO decomposition → linked subtasks with role/agent assignment → execution via fallback chains (builder ⇒ claude primary) → aggregated result artifact. Guardrails: max depth, max calls, max spend per run (settings).
   **Done when:** test goal produces linked kanban subtasks, runs to aggregated artifact, respects caps.

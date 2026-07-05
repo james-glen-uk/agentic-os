@@ -130,6 +130,10 @@ class BackupRestoreRequest(BaseModel):
 class ChatRequest(BaseModel):
     agent: str
     message: str
+    conversation_id: Optional[str] = None
+
+class ConversationCreate(BaseModel):
+    title: Optional[str] = "New chat"
 
 # ─── Helper Functions ─────────────────────────────────────────────
 
@@ -141,6 +145,14 @@ def read_file(path: Path):
 def write_file(path: Path, content: str):
     path.write_text(content, encoding="utf-8")
     return True
+
+def atomic_write_json(path: Path, obj) -> None:
+    """Write JSON via a temp file + os.replace so concurrent readers never
+    see a truncated/empty file (background threads write while the UI reads)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + f".tmp-{uuid.uuid4().hex[:8]}")
+    tmp.write_text(json.dumps(obj, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 def list_dir(path: Path):
     if not path.exists():
@@ -566,7 +578,14 @@ def get_audit(limit: int = Query(100, le=500)):
     if not audit_file.exists():
         return {"entries": []}
     lines = audit_file.read_text(encoding="utf-8").strip().split("\n")
-    entries = [json.loads(l) for l in lines if l.strip()]
+    entries = []
+    for l in lines:
+        if not l.strip():
+            continue
+        try:
+            entries.append(json.loads(l))
+        except json.JSONDecodeError:
+            continue
     return {"entries": entries[-limit:]}
 
 # ─── Routes: Cost Analytics ───────────────────────────────────────
@@ -913,8 +932,11 @@ def discover_standards():
 # ─── Routes: Chat ─────────────────────────────────────────────────
 
 CHAT_HISTORY_FILE = BASE_DIR / "data" / "chat-history.json"
+CONVERSATIONS_FILE = BASE_DIR / "data" / "conversations.json"
+MAX_MESSAGES_PER_CONVERSATION = 200
+MAX_CONVERSATIONS = 100
 
-def load_chat_history():
+def load_legacy_chat_history():
     if not CHAT_HISTORY_FILE.exists():
         return {"messages": []}
     try:
@@ -925,12 +947,74 @@ def load_chat_history():
         pass
     return {"messages": []}
 
-def save_chat_message(msg: dict):
-    history = load_chat_history()
-    history.setdefault("messages", []).append(msg)
-    if len(history["messages"]) > 200:
-        history["messages"] = history["messages"][-200:]
-    CHAT_HISTORY_FILE.write_text(json.dumps(history, indent=2), encoding="utf-8")
+def load_conversations() -> dict:
+    if not CONVERSATIONS_FILE.exists():
+        return {"conversations": []}
+    try:
+        data = json.loads(CONVERSATIONS_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and "conversations" in data:
+            return data
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return {"conversations": []}
+
+def save_conversations(data: dict):
+    CONVERSATIONS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+def get_conversation(conv_id: str, data: Optional[dict] = None) -> Optional[dict]:
+    data = data or load_conversations()
+    return next((c for c in data["conversations"] if c["id"] == conv_id), None)
+
+def create_conversation(title: str = "New chat") -> dict:
+    data = load_conversations()
+    conv = {"id": str(uuid.uuid4())[:8], "title": title or "New chat",
+            "created": get_timestamp(), "updated": get_timestamp(), "messages": []}
+    data["conversations"].insert(0, conv)
+    data["conversations"] = data["conversations"][:MAX_CONVERSATIONS]
+    save_conversations(data)
+    return conv
+
+def append_conversation_message(conv_id: str, msg: dict) -> dict:
+    data = load_conversations()
+    conv = get_conversation(conv_id, data)
+    if conv is None:
+        conv = {"id": conv_id, "title": "New chat",
+                "created": get_timestamp(), "updated": get_timestamp(), "messages": []}
+        data["conversations"].insert(0, conv)
+    conv["messages"].append(msg)
+    conv["messages"] = conv["messages"][-MAX_MESSAGES_PER_CONVERSATION:]
+    conv["updated"] = get_timestamp()
+    if conv["title"] in ("New chat", "") and msg["role"] == "user":
+        conv["title"] = msg["content"][:40] + ("…" if len(msg["content"]) > 40 else "")
+    save_conversations(data)
+    return conv
+
+def delete_conversation(conv_id: str) -> bool:
+    data = load_conversations()
+    before = len(data["conversations"])
+    data["conversations"] = [c for c in data["conversations"] if c["id"] != conv_id]
+    save_conversations(data)
+    return len(data["conversations"]) < before
+
+def migrate_legacy_chat_history():
+    """One-time import of the old single-thread chat-history.json into
+    conversations.json, run at module load. Idempotent: skipped once
+    conversations.json exists or the legacy file has already been renamed."""
+    migrated_marker = CHAT_HISTORY_FILE.with_suffix(".json.migrated")
+    if CONVERSATIONS_FILE.exists() or migrated_marker.exists() or not CHAT_HISTORY_FILE.exists():
+        return
+    legacy = load_legacy_chat_history()
+    if legacy.get("messages"):
+        conv = {"id": str(uuid.uuid4())[:8], "title": "Imported conversation",
+                "created": get_timestamp(), "updated": get_timestamp(),
+                "messages": legacy["messages"]}
+        save_conversations({"conversations": [conv]})
+    try:
+        CHAT_HISTORY_FILE.rename(migrated_marker)
+    except OSError:
+        pass
+
+migrate_legacy_chat_history()
 
 def run_cli(args: list, timeout: int = 30) -> tuple:
     r = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
@@ -1372,6 +1456,248 @@ def execute_with_fallback(chain: list, message: str) -> dict:
               details={"attempts": attempts})
     return {"agent": None, "output": summary, "attempts": attempts, "fallback_used": True}
 
+# ─── Multi-Agent Orchestration ────────────────────────────────────
+# A goal → CEO decomposition → role-assigned subtasks (kanban) → each
+# executed via a fallback chain → CEO aggregation → final artifact.
+# Runs in a background thread; the UI polls the run record.
+
+ORCHESTRATION_DIR = BASE_DIR / "data" / "orchestrations"
+VALID_ROLES = ["ceo", "cto", "researcher", "builder", "reviewer"]
+_ID8_RE = re.compile(r"^[0-9a-f]{8}$")
+
+class OrchestrateRequest(BaseModel):
+    goal: str
+    max_subtasks: Optional[int] = None
+
+def load_role(role: str) -> dict:
+    """Role persona + its primary agent (from the `Primary:` line)."""
+    p = BASE_DIR / "agents" / "roles" / f"{role}.md"
+    persona, primary = "", "claude"
+    if p.exists():
+        persona = p.read_text(encoding="utf-8")
+        for line in persona.splitlines():
+            if line.strip().lower().startswith("primary:"):
+                cand = line.split(":", 1)[1].strip().lower()
+                if cand in KNOWN_AGENTS:
+                    primary = cand
+    return {"persona": persona, "primary": primary}
+
+def list_roles() -> list:
+    roles = []
+    for name in VALID_ROLES:
+        r = load_role(name)
+        first_para = next((ln.strip() for ln in r["persona"].splitlines()
+                           if ln.strip() and not ln.startswith("#") and ":" not in ln[:10]), "")
+        roles.append({"name": name, "primary": r["primary"], "summary": first_para[:160]})
+    return roles
+
+def _save_orchestration(run: dict):
+    run["updated"] = get_timestamp()
+    atomic_write_json(ORCHESTRATION_DIR / f"{run['id']}.json", run)
+
+def _load_orchestration(run_id: str) -> dict:
+    p = ORCHESTRATION_DIR / f"{run_id}.json"
+    return json.loads(p.read_text(encoding="utf-8-sig"))
+
+def _total_claude_spend() -> float:
+    cost_file = BASE_DIR / "data" / "cost-history.json"
+    if not cost_file.exists():
+        return 0.0
+    try:
+        data = json.loads(cost_file.read_text(encoding="utf-8-sig"))
+        return sum(float(e.get("cost", 0) or 0) for e in data.get("entries", []))
+    except Exception:
+        return 0.0
+
+def _run_role_task(role: str, title: str, description: str, context: str = "") -> dict:
+    r = load_role(role)
+    prompt = f"{r['persona']}\n\n## Your task: {title}\n\n{description}"
+    if context:
+        prompt += f"\n\n## Context from earlier steps\n{context}"
+    chain = resolve_agent_chain("auto", primary=r["primary"])
+    return execute_with_fallback(chain, prompt)
+
+def _orchestrator_plan(goal: str, max_subtasks: int) -> dict:
+    ceo = load_role("ceo")
+    prompt = (
+        ceo["persona"]
+        + f"\n\n## Goal\n{goal}\n\n## Instruction\n"
+        + f"Decompose this goal into at most {max_subtasks} subtasks. Reply with ONLY a "
+        + 'JSON array; each element {"role": "researcher|cto|builder|reviewer", '
+        + '"title": "short title", "description": "what to do"}. No prose, no code fences.'
+    )
+    chain = resolve_agent_chain("auto", primary=ceo["primary"])
+    result = execute_with_fallback(chain, prompt)
+    plan = []
+    if result["agent"]:
+        match = re.search(r"\[.*\]", result["output"], re.DOTALL)
+        if match:
+            try:
+                for item in json.loads(match.group(0))[:max_subtasks]:
+                    role = str(item.get("role", "builder")).lower()
+                    plan.append({
+                        "role": role if role in VALID_ROLES else "builder",
+                        "title": str(item.get("title", "")).strip()[:80] or "Subtask",
+                        "description": str(item.get("description", "")).strip(),
+                    })
+            except Exception:
+                log.warning("orchestrator plan JSON parse failed", exc_info=True)
+    if not plan:
+        plan = [{"role": "builder", "title": goal[:80], "description": goal}]
+    return {"plan": plan, "result": result}
+
+def _run_orchestration(run_id: str):
+    run = _load_orchestration(run_id)
+    try:
+        spend_start = _total_claude_spend()
+        caps = run["caps"]
+
+        planned = _orchestrator_plan(run["goal"], caps["max_subtasks"])
+        run["calls_made"] += 1
+
+        parent = {
+            "id": str(uuid.uuid4())[:8], "title": f"🎯 {run['goal'][:70]}",
+            "body": run["goal"], "status": "in_progress", "priority": "high",
+            "assignee": "ceo", "comments": [], "links": [],
+            "created": get_timestamp(), "updated": get_timestamp(),
+        }
+        save_kanban_task(parent)
+        run["parent_task_id"] = parent["id"]
+
+        for item in planned["plan"]:
+            child_id = str(uuid.uuid4())[:8]
+            child = {
+                "id": child_id, "title": item["title"], "body": item["description"],
+                "status": "todo", "priority": "medium", "assignee": item["role"],
+                "comments": [], "links": [{"parent": parent["id"], "child": child_id}],
+                "created": get_timestamp(), "updated": get_timestamp(),
+            }
+            save_kanban_task(child)
+            parent["links"].append({"parent": parent["id"], "child": child_id})
+            run["subtasks"].append({
+                "id": child_id, "role": item["role"], "agent": None,
+                "title": item["title"], "description": item["description"],
+                "status": "pending", "kanban_id": child_id,
+                "output_preview": "", "artifact_id": None,
+            })
+        save_kanban_task(parent)
+        run["status"] = "running"
+        _save_orchestration(run)
+
+        context_parts = []
+        for st in run["subtasks"]:
+            if run["calls_made"] >= caps["max_agent_calls"]:
+                st["status"] = "skipped"
+                continue
+            if (_total_claude_spend() - spend_start) >= caps["max_spend_usd"]:
+                st["status"] = "skipped"
+                continue
+            st["status"] = "running"
+            _mark_kanban_status(st["kanban_id"], "in_progress")
+            _save_orchestration(run)
+
+            result = _run_role_task(st["role"], st["title"], st["description"],
+                                    "\n\n".join(context_parts))
+            run["calls_made"] += 1
+            st["agent"] = result["agent"]
+            if result["agent"]:
+                st["status"] = "done"
+                st["output_preview"] = result["output"][:200]
+                art = save_artifact(skill=f"orchestrate:{st['role']}", agent=result["agent"],
+                                    content=result["output"], title=st["title"],
+                                    source_topic=run["goal"])
+                st["artifact_id"] = art["id"]
+                context_parts.append(f"### {st['role']} — {st['title']}\n{result['output']}")
+                _mark_kanban_status(st["kanban_id"], "done")
+            else:
+                st["status"] = "failed"
+                _mark_kanban_status(st["kanban_id"], "blocked")
+            _save_orchestration(run)
+
+        ceo = load_role("ceo")
+        agg_prompt = (
+            ceo["persona"] + f"\n\n## Original goal\n{run['goal']}\n\n"
+            + f"## Subtask outputs\n{chr(10).join(context_parts) or '(no subtasks completed)'}\n\n"
+            + "## Instruction\nSynthesize the above into one final deliverable that "
+            + "answers the goal. Lead with the answer."
+        )
+        chain = resolve_agent_chain("auto", primary=ceo["primary"])
+        agg = execute_with_fallback(chain, agg_prompt)
+        run["calls_made"] += 1
+
+        art = save_artifact(skill="orchestrate:ceo", agent=agg["agent"] or "none",
+                            content=agg["output"], title=f"Orchestration: {run['goal'][:60]}",
+                            source_topic=run["goal"])
+        run["artifact_id"] = art["id"]
+        run["spend_usd"] = round(_total_claude_spend() - spend_start, 4)
+        run["status"] = "completed" if agg["agent"] else "failed"
+        _mark_kanban_status(parent["id"], "done")
+        _save_orchestration(run)
+        append_audit({"action": "orchestration_completed", "run_id": run_id,
+                      "subtasks": len(run["subtasks"]), "calls": run["calls_made"]})
+    except Exception as e:
+        run["status"] = "failed"
+        run["error"] = str(e)
+        _save_orchestration(run)
+        log_error("orchestrator", str(e), category="system")
+
+def _mark_kanban_status(task_id: str, status: str):
+    path = KANBAN_DIR / f"{task_id}.json"
+    if path.exists():
+        t = json.loads(path.read_text(encoding="utf-8"))
+        t["status"] = status
+        t["updated"] = get_timestamp()
+        save_kanban_task(t)
+
+@app.get("/api/roles")
+def get_roles():
+    return {"roles": list_roles()}
+
+@app.post("/api/orchestrate")
+def orchestrate(data: OrchestrateRequest):
+    goal = (data.goal or "").strip()
+    if not goal:
+        raise HTTPException(400, "Goal cannot be empty")
+    if len(goal) > 2000:
+        raise HTTPException(400, "Goal too long (max 2000 characters)")
+    cfg = load_settings().get("orchestration", {})
+    caps = {
+        "max_subtasks": max(1, min(int(data.max_subtasks or cfg.get("max_subtasks", 5)), 8)),
+        "max_agent_calls": int(cfg.get("max_agent_calls", 12)),
+        "max_spend_usd": float(cfg.get("max_spend_usd", 1.0)),
+    }
+    run = {
+        "id": str(uuid.uuid4())[:8], "goal": goal, "status": "planning",
+        "created": get_timestamp(), "updated": get_timestamp(),
+        "parent_task_id": None, "caps": caps, "calls_made": 0,
+        "spend_usd": 0.0, "subtasks": [], "artifact_id": None, "error": None,
+    }
+    _save_orchestration(run)
+    append_audit({"action": "orchestration_started", "run_id": run["id"], "goal": goal[:60]})
+    threading.Thread(target=_run_orchestration, args=(run["id"],), daemon=True).start()
+    return run
+
+@app.get("/api/orchestrate")
+def list_orchestrations(limit: int = Query(20, le=100)):
+    if not ORCHESTRATION_DIR.exists():
+        return {"runs": []}
+    runs = []
+    for f in sorted(ORCHESTRATION_DIR.glob("*.json"), reverse=True)[:limit]:
+        try:
+            runs.append(json.loads(f.read_text(encoding="utf-8-sig")))
+        except Exception:
+            continue
+    return {"runs": runs}
+
+@app.get("/api/orchestrate/{run_id}")
+def get_orchestration(run_id: str):
+    if not _ID8_RE.match(run_id):
+        raise HTTPException(400, "Invalid run id")
+    p = ORCHESTRATION_DIR / f"{run_id}.json"
+    if not p.exists():
+        raise HTTPException(404, "Orchestration run not found")
+    return _load_orchestration(run_id)
+
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     agent = req.agent.lower().strip()
@@ -1383,6 +1709,10 @@ def chat(req: ChatRequest):
     if len(message) > 10000:
         raise HTTPException(400, "Message too long (max 10000 characters)")
 
+    conv_id = req.conversation_id
+    if not conv_id:
+        conv_id = create_conversation(title=message[:40])["id"]
+
     user_msg = {
         "id": str(uuid.uuid4())[:8],
         "role": "user",
@@ -1390,7 +1720,7 @@ def chat(req: ChatRequest):
         "content": message,
         "timestamp": get_timestamp(),
     }
-    save_chat_message(user_msg)
+    append_conversation_message(conv_id, user_msg)
 
     chain = resolve_agent_chain(agent, primary=_suggest_agent(message) if agent == "auto" else "")
     result = execute_with_fallback(chain, message)
@@ -1403,17 +1733,53 @@ def chat(req: ChatRequest):
         "content": result["output"],
         "timestamp": get_timestamp(),
     }
-    save_chat_message(agent_msg)
+    append_conversation_message(conv_id, agent_msg)
 
     append_audit({"action": "chat_message", "agent": agent_used,
-                  "requested": agent, "msg_preview": message[:50]})
+                  "requested": agent, "conversation_id": conv_id, "msg_preview": message[:50]})
 
-    return {"status": "ok", "response": agent_msg,
+    return {"status": "ok", "response": agent_msg, "conversation_id": conv_id,
             "attempts": result["attempts"], "fallback_used": result["fallback_used"]}
 
 @app.get("/api/chat/history")
 def get_chat_history():
-    return load_chat_history()
+    """Backward-compat: returns the most-recently-updated conversation's
+    messages in the old flat {"messages": [...]} shape."""
+    data = load_conversations()
+    if not data["conversations"]:
+        return {"messages": []}
+    latest = max(data["conversations"], key=lambda c: c["updated"])
+    return {"messages": latest["messages"]}
+
+@app.get("/api/conversations")
+def list_conversations():
+    data = load_conversations()
+    convs = sorted(data["conversations"], key=lambda c: c["updated"], reverse=True)
+    return {"conversations": [
+        {"id": c["id"], "title": c["title"], "updated": c["updated"], "created": c["created"],
+         "message_count": len(c["messages"])} for c in convs
+    ]}
+
+@app.post("/api/conversations")
+def new_conversation(req: ConversationCreate):
+    conv = create_conversation(req.title or "New chat")
+    append_audit({"action": "conversation_created", "id": conv["id"]})
+    return conv
+
+@app.get("/api/conversations/{conv_id}")
+def get_conversation_route(conv_id: str):
+    conv = get_conversation(conv_id)
+    if conv is None:
+        raise HTTPException(404, "Conversation not found")
+    return conv
+
+@app.delete("/api/conversations/{conv_id}")
+def delete_conversation_route(conv_id: str):
+    ok = delete_conversation(conv_id)
+    if not ok:
+        raise HTTPException(404, "Conversation not found")
+    append_audit({"action": "conversation_deleted", "id": conv_id})
+    return {"status": "ok"}
 
 # ═══════════════════════════════════════════════════════════════════
 # v0.2.0 — New Feature Endpoints
@@ -1490,7 +1856,7 @@ def load_kanban_tasks():
 
 def save_kanban_task(task: dict):
     ensure_dir(KANBAN_DIR)
-    (KANBAN_DIR / f"{task['id']}.json").write_text(json.dumps(task, indent=2), encoding="utf-8")
+    atomic_write_json(KANBAN_DIR / f"{task['id']}.json", task)
 
 def load_goals():
     if GOALS_FILE.exists():
