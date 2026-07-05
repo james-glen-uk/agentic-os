@@ -22,4 +22,5 @@ data/artifacts/
 data/news/
 data/orchestrations/
 workspace/
+exports/
 scheduler/*.pyc

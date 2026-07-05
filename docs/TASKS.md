@@ -121,7 +121,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
 
 ## Phase 4 — Sharing, Benchmarking, Polish (PRD Epic H + docs) `P1`
 
-- [ ] **4.1 Save-file export/import** *(H1)*
+- [x] **4.1 Save-file export/import** *(H1)*
   Files: `server.py` (new `/api/export`, `/api/import`), reuse tar logic from `/api/backup` (497–524), `dashboard/pages/backups.js` (export/import UI)
   Export excludes secrets/runtime/backups; import validates, reports missing deps (CLIs, keys, feeds) with instructions, never overwrites existing secrets.
   **Done when:** export→wipe-clone→import round-trip test passes with a dependency report.

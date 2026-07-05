@@ -690,6 +690,116 @@ def restore_backup(data: BackupRestoreRequest):
     append_audit({"action": "backup_restored", "file": data.file})
     return {"status": "restored"}
 
+# ─── Save File: shareable export / import (secrets excluded) ───────
+# A backup captures YOUR state incl. runtime; an export is a shareable
+# "save file" of config only — no secrets, no runtime data — plus a
+# manifest so the importer knows what CLIs/keys/feeds it needs.
+
+EXPORT_DIR = BASE_DIR / "exports"
+EXPORT_DIRS = ["brain", "skills", "agents", "registry", "standards", "prompts", "scheduler/jobs"]
+_EXPORT_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+\.tar\.gz$")
+
+class ImportRequest(BaseModel):
+    file: str
+    apply: bool = True
+
+def _build_export_manifest() -> dict:
+    settings = load_settings()
+    skills = [d.name for d in (BASE_DIR / "skills").iterdir()
+              if d.is_dir() and not d.name.startswith("_")] if (BASE_DIR / "skills").exists() else []
+    return {
+        "kind": "agentic-os-export",
+        "version": app.version,
+        "exported_at": get_timestamp(),
+        "agents": [a for a in KNOWN_AGENTS if (BASE_DIR / "agents" / a).exists()],
+        "api_keys_needed": sorted(set(list((settings.get("api_keys") or {}).keys())
+                                      + (["gemini"] if (settings.get("media") or {}).get("image_provider") == "gemini" else []))),
+        "news_feeds": len((settings.get("news") or {}).get("feeds") or []),
+        "skills": skills,
+        "roles": [f.stem for f in (BASE_DIR / "agents" / "roles").glob("*.md")] if (BASE_DIR / "agents" / "roles").exists() else [],
+    }
+
+def _sanitized_settings() -> dict:
+    """Settings minus anything secret — safe to share."""
+    s = dict(load_settings())
+    s.pop("api_keys", None)
+    return s
+
+@app.post("/api/export")
+def export_savefile():
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    export_file = EXPORT_DIR / f"agentic-os-export-{ts}.tar.gz"
+    manifest = _build_export_manifest()
+    import io
+    with tarfile.open(export_file, "w:gz") as tar:
+        for rel in EXPORT_DIRS:
+            d = BASE_DIR / rel
+            if d.exists():
+                tar.add(d, arcname=rel)
+        for name, payload in (("manifest.json", manifest),
+                              ("settings.template.json", _sanitized_settings())):
+            raw = json.dumps(payload, indent=2).encode("utf-8")
+            info = tarfile.TarInfo(name)
+            info.size = len(raw)
+            tar.addfile(info, io.BytesIO(raw))
+    append_audit({"action": "savefile_exported", "file": export_file.name})
+    return {"status": "ok", "file": export_file.name,
+            "size": export_file.stat().st_size, "manifest": manifest}
+
+@app.get("/api/exports")
+def list_exports():
+    if not EXPORT_DIR.exists():
+        return {"exports": []}
+    return {"exports": [{"name": f.name, "size": f.stat().st_size,
+                         "created": datetime.fromtimestamp(f.stat().st_mtime).isoformat()}
+                        for f in sorted(EXPORT_DIR.glob("*.tar.gz"), reverse=True)]}
+
+@app.post("/api/import")
+def import_savefile(data: ImportRequest):
+    if not _EXPORT_NAME_RE.match(data.file or ""):
+        raise HTTPException(400, "Invalid export file name")
+    export_file = EXPORT_DIR / data.file
+    if not export_file.exists():
+        raise HTTPException(404, "Export file not found")
+
+    with tarfile.open(export_file, "r:gz") as tar:
+        try:
+            manifest = json.loads(tar.extractfile("manifest.json").read().decode("utf-8"))
+        except Exception:
+            raise HTTPException(400, "Not a valid export (missing manifest.json)")
+
+    # Dependency report — what the importer still needs to wire up
+    existing_keys = set((load_settings().get("api_keys") or {}).keys())
+    missing = {
+        "agent_clis": [a for a in manifest.get("agents", []) if shutil.which(a) is None],
+        "api_keys": [k for k in manifest.get("api_keys_needed", []) if k not in existing_keys],
+    }
+    report = {"manifest": manifest, "missing_dependencies": missing, "applied": False}
+    if not data.apply:
+        return report
+
+    with tarfile.open(export_file, "r:gz") as tar:
+        safe_extractall(tar, BASE_DIR)
+    # Merge sanitized settings WITHOUT ever touching existing secrets
+    tmpl_path = BASE_DIR / "settings.template.json"
+    if tmpl_path.exists():
+        try:
+            tmpl = json.loads(tmpl_path.read_text(encoding="utf-8-sig"))
+            existing = load_settings()
+            preserved_keys = existing.get("api_keys")
+            existing.update(tmpl)
+            if preserved_keys is not None:
+                existing["api_keys"] = preserved_keys  # never overwrite secrets
+            (BASE_DIR / "data").mkdir(exist_ok=True)
+            atomic_write_json(BASE_DIR / "data" / "settings.json", existing)
+        finally:
+            tmpl_path.unlink(missing_ok=True)
+    (BASE_DIR / "manifest.json").unlink(missing_ok=True)
+    append_audit({"action": "savefile_imported", "file": data.file})
+    report["applied"] = True
+    return report
+
 # ─── Routes: Prompts ──────────────────────────────────────────────
 
 @app.get("/api/prompts")
