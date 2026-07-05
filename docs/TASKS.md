@@ -131,7 +131,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Bench set runs across healthy agents; leaderboard: score/latency/cost; results exposed to router as `prefer: quality` ordering input (feeds 1.4).
   **Done when:** one command benches all healthy agents and the leaderboard renders; routing order observably reflects results.
 
-- [ ] **4.3 README & claims audit** *(Goal 2, Metric)*
+- [x] **4.3 README & claims audit** *(Goal 2, Metric)*
   Files: `README.md`, `AGENTS.md`, `docs/`
   Every feature claim verified against code; new features documented; comparison table updated; add PRD-V2/TASKS links.
   **Done when:** zero documented-but-unimplemented features remain.

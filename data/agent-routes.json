@@ -30,7 +30,7 @@
   ],
   "agent_capabilities": {
     "opencode": ["code_generation", "file_operations", "git_management", "terminal_execution", "infrastructure_as_code", "testing", "debugging"],
-    "hermes": ["persistent_memory", "scheduled_tasks", "messaging_channels", "skill_hub", "voice", "browser_automation", "subagent_delegation"],
+    "hermes": ["persistent_memory", "scheduled_tasks", "skill_hub"],
     "gemini": ["web_search", "multi_modal_analysis", "document_understanding", "data_analysis", "research_synthesis", "reasoning"],
     "claude": ["complex_implementation", "multi_step_builds", "orchestration", "code_review", "agentic_tool_use", "long_context_reasoning"]
   },
