@@ -20,4 +20,5 @@ data/memory.db
 data/kanban/*.json
 data/artifacts/
 data/news/
+data/orchestrations/
 scheduler/*.pyc
