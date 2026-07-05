@@ -2501,11 +2501,10 @@ def index():
     html_file = BASE_DIR / "dashboard" / "index.html"
     if html_file.exists():
         content = html_file.read_text(encoding="utf-8")
-        content = content.replace('href="styles.css"', 'href="/dashboard/styles.css"')
-        content = content.replace('src="utils.js"', 'src="/dashboard/utils.js"')
-        content = content.replace('src="api.js"', 'src="/dashboard/api.js"')
-        content = content.replace('src="app.js"', 'src="/dashboard/app.js"')
-        content = content.replace('pages/', '/dashboard/pages/')
+        # Rewrite any relative asset path to /dashboard/ (skip absolute paths and
+        # external URLs) so new scripts/styles work without per-file edits here.
+        content = re.sub(r'(src|href)="(?!https?://|//|/|data:)([^"]+)"',
+                         r'\1="/dashboard/\2"', content)
         return HTMLResponse(content=content)
     return HTMLResponse("<h1>Agentic OS</h1><p>Dashboard not built yet. Run <code>./install.sh</code> first.</p>")
 

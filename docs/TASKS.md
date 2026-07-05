@@ -114,7 +114,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
   Files: same adapter interface as 3.4; providers configurable; audio/video previews in artifacts page
   **Done when:** with a configured provider, track/video lands in library; without, clean "not configured" state. (Defer to P2 if no provider access.)
 
-- [ ] **3.6 Voice push-to-talk** *(G1)*
+- [x] **3.6 Voice push-to-talk** *(G1)*
   Files: `dashboard/index.html` (mic button), new `dashboard/voice.js` (Web Speech API), `server.py` (route transcript via `/api/router/suggest` → skill + confirm)
   Confirmation chip before any run; unmatched commands ask, never guess. Update README to reflect real (not phantom) voice support.
   **Done when:** spoken "run the news oracle" in Chrome/Edge triggers the right skill after confirmation.
