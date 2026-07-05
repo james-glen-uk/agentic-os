@@ -114,6 +114,9 @@ const api = {
   // News Oracle
   getNewsTopics: (date) => api.get(`/api/news/topics${date ? '?date=' + encodeURIComponent(date) : ''}`),
   refreshNews: () => api.post('/api/news/refresh', {}),
+  // System / desktop
+  getStartupSettings: () => api.get('/api/system/startup'),
+  updateStartupSettings: (data) => api.put('/api/system/startup', data),
   // Benchmark
   getBenchTasks: () => api.get('/api/bench/tasks'),
   runBench: (agents) => api.post('/api/bench/run', agents ? { agents } : {}),

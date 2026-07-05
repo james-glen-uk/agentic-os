@@ -833,6 +833,101 @@ def update_settings(data: SettingsUpdate):
     append_audit({"action": "settings_updated"})
     return {"status": "ok"}
 
+# ─── System: start-on-boot & tray (desktop app) ───────────────────
+
+class StartupUpdate(BaseModel):
+    start_on_boot: Optional[bool] = None
+    minimize_to_tray: Optional[bool] = None
+    launch_minimized: Optional[bool] = None
+
+class _RegistryStartupBackend:
+    """Windows: an HKCU\\...\\Run value that launches the app minimized."""
+    RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    VALUE = "AgenticOS"
+
+    def supported(self) -> bool:
+        return os.name == "nt"
+
+    def is_enabled(self) -> bool:
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.RUN_KEY) as k:
+                winreg.QueryValueEx(k, self.VALUE)
+            return True
+        except Exception:
+            return False
+
+    def enable(self, command: str) -> None:
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.RUN_KEY) as k:
+            winreg.SetValueEx(k, self.VALUE, 0, winreg.REG_SZ, command)
+
+    def disable(self) -> None:
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+                winreg.DeleteValue(k, self.VALUE)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+
+class _MemoryStartupBackend:
+    """Non-Windows / tests: no real autostart, tracked in memory."""
+    def __init__(self, supported=False):
+        self._enabled = False
+        self._supported = supported
+    def supported(self) -> bool:
+        return self._supported
+    def is_enabled(self) -> bool:
+        return self._enabled
+    def enable(self, command: str) -> None:
+        self._enabled = True
+    def disable(self) -> None:
+        self._enabled = False
+
+_startup_backend = _RegistryStartupBackend() if os.name == "nt" else _MemoryStartupBackend()
+
+def _startup_command() -> str:
+    import sys
+    if getattr(sys, "frozen", False):  # packaged exe
+        return f'"{sys.executable}" --minimized'
+    pyw = Path(sys.executable).with_name("pythonw.exe")
+    exe = str(pyw) if pyw.exists() else sys.executable
+    return f'"{exe}" "{BASE_DIR / "desktop.py"}" --minimized'
+
+@app.get("/api/system/startup")
+def get_startup():
+    s = load_settings().get("system", {})
+    return {
+        "supported": _startup_backend.supported(),
+        "start_on_boot": _startup_backend.is_enabled(),
+        "minimize_to_tray": s.get("minimize_to_tray", True),
+        "launch_minimized": s.get("launch_minimized", False),
+        "platform": os.name,
+    }
+
+@app.put("/api/system/startup")
+def set_startup(data: StartupUpdate):
+    settings = load_settings()
+    sysc = settings.get("system", {})
+    if data.minimize_to_tray is not None:
+        sysc["minimize_to_tray"] = data.minimize_to_tray
+    if data.launch_minimized is not None:
+        sysc["launch_minimized"] = data.launch_minimized
+    settings["system"] = sysc
+    (BASE_DIR / "data").mkdir(exist_ok=True)
+    atomic_write_json(BASE_DIR / "data" / "settings.json", settings)
+    if data.start_on_boot is not None:
+        if not _startup_backend.supported():
+            raise HTTPException(400, "Start-on-boot is not supported on this platform")
+        if data.start_on_boot:
+            _startup_backend.enable(_startup_command())
+        else:
+            _startup_backend.disable()
+    append_audit({"action": "system_startup_updated", "start_on_boot": data.start_on_boot})
+    return get_startup()
+
 # ─── Routes: Webhooks & Scheduler Events (v0.3.0) ─────────────────
 
 @app.post("/api/webhook")

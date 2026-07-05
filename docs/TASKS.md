@@ -141,7 +141,7 @@ Execution checklist for [`PRD-V2.md`](PRD-V2.md). Tasks are sized for one focuse
 - [x] **5.1 Desktop app: tray + window + server-in-process**
   Files: new `desktop.py`, `requirements-desktop.txt`, `tests/test_desktop.py`
   Run the FastAPI server in a background thread; pystray tray icon (Open / App Window / Quit); pywebview window with default-browser fallback. GUI deps optional at runtime.
-- [ ] **5.2 Start-on-boot + minimize-to-tray settings**
+- [x] **5.2 Start-on-boot + minimize-to-tray settings**
   Backend `/api/system/startup` GET/PUT managing a Windows startup entry + tray settings; Settings UI.
 - [ ] **5.3 PyInstaller packaging (Windows installer)**
 - [ ] **5.4 Voice backend: Hey Jarvis wake word (openWakeWord) + Whisper STT** — background listener, `/api/voice/state`, optional deps degrade gracefully.

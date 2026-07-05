@@ -71,8 +71,19 @@ def _tray_image():
     return img
 
 
+def _launch_minimized_setting() -> bool:
+    sf = BASE_DIR / "data" / "settings.json"
+    if sf.exists():
+        try:
+            return bool(json.loads(sf.read_text(encoding="utf-8")).get("system", {}).get("launch_minimized", False))
+        except Exception:
+            pass
+    return False
+
+
 def run_desktop(host: str = "127.0.0.1", port: int = None, minimized: bool = False):
     port = port or configured_port()
+    minimized = minimized or _launch_minimized_setting()
     url = f"http://{host}:{port}"
     print(f"Agentic OS starting on {url} …")
     start_server_thread(host, port)
