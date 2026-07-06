@@ -9,6 +9,9 @@ Write-Host "Building Agentic OS v$version ..." -ForegroundColor Cyan
 Write-Host "Installing build + desktop dependencies..." -ForegroundColor Cyan
 & $py[0] $py[1..($py.Count)] -m pip install -r requirements-desktop.txt pyinstaller --quiet --disable-pip-version-check
 
+Write-Host "Generating crescent-moon icon..." -ForegroundColor Cyan
+& $py[0] $py[1..($py.Count)] branding.py
+
 Write-Host "Running PyInstaller (this can take a few minutes)..." -ForegroundColor Cyan
 & $py[0] $py[1..($py.Count)] -m PyInstaller AgenticOS.spec --noconfirm --clean
 

@@ -22,9 +22,9 @@ datas.append(("VERSION", "."))
 hiddenimports = (
     collect_submodules("uvicorn")
     + collect_submodules("apscheduler")
-    + ["server", "news_oracle", "voice_service", "brain.memory_search",
+    + ["server", "news_oracle", "voice_service", "branding", "brain.memory_search",
        "scheduler.scheduler", "feedparser", "pystray._win32", "PIL.Image",
-       "PIL.ImageDraw"]
+       "PIL.ImageDraw", "PIL.ImageChops"]
 )
 
 a = Analysis(
@@ -44,6 +44,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.zipfiles, a.datas, [],
     name=f"AgenticOS-Setup-v{VERSION}",
+    icon="AgenticOS.ico",   # crescent-moon exe / install icon
     console=False,          # GUI app — no console window
     upx=True,
     disable_windowed_traceback=False,
