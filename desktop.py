@@ -90,12 +90,8 @@ def wait_until_ready(url: str, timeout: float = 20.0) -> bool:
 # ─── Tray + window (optional, GUI) ────────────────────────────────
 
 def _tray_image():
-    from PIL import Image, ImageDraw
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.ellipse((6, 6, 58, 58), fill=(217, 119, 87, 255))   # brand orange
-    d.text((22, 20), "A", fill=(255, 255, 255, 255))
-    return img
+    from branding import moon_image  # crescent-moon logo
+    return moon_image(64)
 
 
 def _launch_minimized_setting() -> bool:
