@@ -119,9 +119,16 @@
   <script src="app.js"></script>
   <script src="voice.js"></script>
   <script>
+    // No service worker for this localhost desktop app: a stale PWA cache from
+    // earlier versions was serving a blank/old shell. Actively remove any
+    // previously-registered worker and clear its caches so the app always loads
+    // fresh. (Registering /sw.js still installs the self-removing kill switch.)
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      navigator.serviceWorker.getRegistrations()
+        .then(rs => { if (rs.length) rs.forEach(r => r.unregister()); else navigator.serviceWorker.register('/sw.js').catch(() => {}); })
+        .catch(() => {});
     }
+    if (window.caches) { caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {}); }
   </script>
 </body>
 </html>
