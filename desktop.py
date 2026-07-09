@@ -16,26 +16,47 @@ import time
 import webbrowser
 from pathlib import Path
 
-# Template dirs to seed into the writable home on first run of a frozen build.
-_SEED_DIRS = ["dashboard", "brain", "skills", "agents", "scheduler", "prompts",
-              "standards", "registry", "bench", "data", "docs"]
+# Pure app-asset dirs: refreshed on every version upgrade so the packaged app
+# never serves a stale dashboard. UI staleness here caused blank/white screens.
+_UI_DIRS = ["dashboard", "docs"]
+# User/runtime dirs: seeded once, never clobbered (they hold your data).
+_DATA_DIRS = ["brain", "skills", "agents", "scheduler", "prompts",
+              "standards", "registry", "bench", "data"]
 
 
 def _resolve_home() -> Path:
     """Where runtime state lives. In a packaged build, read-only assets ship
     inside the bundle (sys._MEIPASS) but writable data must go to a persistent
-    per-user dir, seeded from the bundle on first run."""
-    if getattr(sys, "frozen", False):
-        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
-        home = Path(base) / "AgenticOS"
-        home.mkdir(parents=True, exist_ok=True)
-        bundle = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
-        for d in _SEED_DIRS:
-            src, dst = bundle / d, home / d
-            if src.exists() and not dst.exists():
-                shutil.copytree(src, dst)
-        return home
-    return Path(__file__).parent
+    per-user dir. Data dirs are seeded once; UI dirs are refreshed whenever the
+    bundled version changes, so upgrades actually update the dashboard."""
+    if not getattr(sys, "frozen", False):
+        return Path(__file__).parent
+
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+    home = Path(base) / "AgenticOS"
+    home.mkdir(parents=True, exist_ok=True)
+    bundle = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+
+    for d in _DATA_DIRS:
+        src, dst = bundle / d, home / d
+        if src.exists() and not dst.exists():
+            shutil.copytree(src, dst)
+
+    try:
+        bundled_ver = (bundle / "VERSION").read_text(encoding="utf-8").strip()
+    except Exception:
+        bundled_ver = ""
+    marker = home / ".seeded_version"
+    seeded_ver = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
+    for d in _UI_DIRS:
+        src, dst = bundle / d, home / d
+        if src.exists() and (not dst.exists() or bundled_ver != seeded_ver):
+            if dst.exists():
+                shutil.rmtree(dst, ignore_errors=True)
+            shutil.copytree(src, dst)
+    if bundled_ver:
+        marker.write_text(bundled_ver, encoding="utf-8")
+    return home
 
 
 if getattr(sys, "frozen", False):

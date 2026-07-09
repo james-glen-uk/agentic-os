@@ -3133,15 +3133,22 @@ def voice_execute(req: VoiceExecuteRequest):
         raise HTTPException(400, "Unknown action")
     return execute_voice_action(req.action, req.params or {})
 
+# Self-removing kill switch. Earlier versions shipped a caching service worker
+# that could serve a stale/blank app shell on localhost. This replacement clears
+# all caches, unregisters itself, and reloads any open clients so users always
+# get a fresh app. It never intercepts fetches.
 SERVICE_WORKER_JS = """
-self.addEventListener('install', (e) => {
-  self.skipWaiting();
-});
+self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => {
-  e.waitUntil(clients.claim());
-});
-self.addEventListener('fetch', (e) => {
-  e.respondWith(fetch(e.request).catch(() => new Response('Offline', {status: 503})));
+  e.waitUntil((async () => {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+      await self.registration.unregister();
+      const cs = await self.clients.matchAll();
+      cs.forEach(c => { try { c.navigate(c.url); } catch (e) {} });
+    } catch (e) {}
+  })());
 });
 """
 
