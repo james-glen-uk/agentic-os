@@ -48,12 +48,14 @@ def _resolve_home() -> Path:
         bundled_ver = ""
     marker = home / ".seeded_version"
     seeded_ver = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
+    ui_up_to_date = bool(bundled_ver) and bundled_ver == seeded_ver
     for d in _UI_DIRS:
         src, dst = bundle / d, home / d
-        if src.exists() and (not dst.exists() or bundled_ver != seeded_ver):
-            if dst.exists():
-                shutil.rmtree(dst, ignore_errors=True)
-            shutil.copytree(src, dst)
+        if src.exists() and (not dst.exists() or not ui_up_to_date):
+            # Overwrite in place (dirs_exist_ok) rather than rmtree+copytree:
+            # on Windows the just-deleted dir can linger briefly and the
+            # recreate then fails with FileExistsError (WinError 183).
+            shutil.copytree(src, dst, dirs_exist_ok=True)
     if bundled_ver:
         marker.write_text(bundled_ver, encoding="utf-8")
     return home
@@ -79,8 +81,21 @@ def _ensure_stdio(home: Path) -> None:
 
 
 if getattr(sys, "frozen", False):
-    os.environ.setdefault("AGENTIC_OS_HOME", str(_resolve_home()))
-    _ensure_stdio(Path(os.environ["AGENTIC_OS_HOME"]))
+    # Redirect stdio to a log FIRST, before any seeding, so every startup error
+    # (incl. failures inside _resolve_home) is captured rather than silently
+    # crashing a windowed exe that has no console.
+    _home = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "AgenticOS"
+    try:
+        _home.mkdir(parents=True, exist_ok=True)
+        _ensure_stdio(_home)
+    except Exception:
+        pass
+    try:
+        os.environ.setdefault("AGENTIC_OS_HOME", str(_resolve_home()))
+    except Exception:
+        import traceback
+        traceback.print_exc()   # goes to the log; seeding is best-effort
+        os.environ.setdefault("AGENTIC_OS_HOME", str(_home))
 
 BASE_DIR = Path(os.environ.get("AGENTIC_OS_HOME") or Path(__file__).parent).resolve()
 
