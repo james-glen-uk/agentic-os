@@ -67,3 +67,54 @@ def test_make_server_null_stdout_without_ensure(server, monkeypatch):
     import desktop
     monkeypatch.setattr(sys, "stdout", None)
     desktop.make_server("127.0.0.1", 8233)  # must not raise
+
+
+def _fake_bundle(tmp_path, version):
+    bundle = tmp_path / "bundle"
+    for d in ("dashboard", "docs", "skills"):
+        (bundle / d).mkdir(parents=True)
+        (bundle / d / "f.txt").write_text(f"{d}-{version}", encoding="utf-8")
+    (bundle / "VERSION").write_text(version, encoding="utf-8")
+    return bundle
+
+
+def test_resolve_home_refreshes_ui_over_existing_dir(monkeypatch, tmp_path):
+    """Regression: version-aware re-seed must overwrite existing UI dirs
+    (dashboard/docs) in place. rmtree+copytree raced on Windows and crashed
+    with FileExistsError (WinError 183) on the second launch."""
+    import sys
+    import desktop
+    home = tmp_path / "home"
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(_fake_bundle(tmp_path, "9.9.9")), raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(desktop.Path, "home", staticmethod(lambda: tmp_path))
+    # Pre-existing stale install: docs dir already there, older seeded version.
+    (home := tmp_path / "AgenticOS").mkdir()
+    (home / "docs").mkdir()
+    (home / "docs" / "f.txt").write_text("docs-OLD", encoding="utf-8")
+    (home / ".seeded_version").write_text("1.0.0", encoding="utf-8")
+
+    result = desktop._resolve_home()  # must NOT raise FileExistsError
+
+    assert result == home
+    assert (home / "docs" / "f.txt").read_text(encoding="utf-8") == "docs-9.9.9"  # refreshed
+    assert (home / "dashboard" / "f.txt").read_text(encoding="utf-8") == "dashboard-9.9.9"
+    assert (home / ".seeded_version").read_text(encoding="utf-8") == "9.9.9"
+
+
+def test_resolve_home_data_dirs_not_clobbered(monkeypatch, tmp_path):
+    """Data dirs (e.g. skills) are seeded once and never overwritten on upgrade."""
+    import sys
+    import desktop
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(_fake_bundle(tmp_path, "9.9.9")), raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(desktop.Path, "home", staticmethod(lambda: tmp_path))
+    home = tmp_path / "AgenticOS"
+    (home / "skills").mkdir(parents=True)
+    (home / "skills" / "f.txt").write_text("MY-EDIT", encoding="utf-8")  # user content
+    (home / ".seeded_version").write_text("1.0.0", encoding="utf-8")
+
+    desktop._resolve_home()
+    assert (home / "skills" / "f.txt").read_text(encoding="utf-8") == "MY-EDIT"  # preserved
