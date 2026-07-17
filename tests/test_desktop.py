@@ -36,3 +36,34 @@ def test_wait_until_ready_times_out_fast(server):
     import desktop
     # Nothing listening on this port → returns False without hanging
     assert desktop.wait_until_ready("http://127.0.0.1:8199/", timeout=1.0) is False
+
+
+def test_make_server_survives_null_stdio(server, monkeypatch, tmp_path):
+    """Regression: double-clicking the windowed exe gives the process NO
+    console, so sys.stdout/sys.stderr are None — uvicorn's logging config then
+    crashed on sys.stdout.isatty() (ValueError: Unable to configure formatter).
+    _ensure_stdio must restore usable streams and make_server must not raise."""
+    import sys
+    import desktop
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+
+    desktop._ensure_stdio(tmp_path)
+    assert sys.stdout is not None and sys.stderr is not None
+    assert (tmp_path / "logs" / "app.log").exists()
+
+    srv = desktop.make_server("127.0.0.1", 8232)  # must not raise
+    assert srv.config.use_colors is False
+
+    print("stdio works again")  # lands in the log file, must not raise
+    sys.stdout.flush()
+    assert "stdio works again" in (tmp_path / "logs" / "app.log").read_text(encoding="utf-8")
+
+
+def test_make_server_null_stdout_without_ensure(server, monkeypatch):
+    """Even without _ensure_stdio (belt), use_colors=False (suspenders) keeps
+    uvicorn's Config from probing isatty on a None stdout."""
+    import sys
+    import desktop
+    monkeypatch.setattr(sys, "stdout", None)
+    desktop.make_server("127.0.0.1", 8233)  # must not raise

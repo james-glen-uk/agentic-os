@@ -59,8 +59,28 @@ def _resolve_home() -> Path:
     return home
 
 
+def _ensure_stdio(home: Path) -> None:
+    """A windowed (console=False) exe launched by double-click has NO console:
+    sys.stdout/sys.stderr are None, which crashes uvicorn's logging setup
+    (sys.stdout.isatty()). Point them at a log file so logging works and
+    crashes are diagnosable."""
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    try:
+        log_dir = home / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stream = open(log_dir / "app.log", "a", encoding="utf-8", buffering=1)
+    except Exception:
+        stream = open(os.devnull, "w", encoding="utf-8")
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
+
+
 if getattr(sys, "frozen", False):
     os.environ.setdefault("AGENTIC_OS_HOME", str(_resolve_home()))
+    _ensure_stdio(Path(os.environ["AGENTIC_OS_HOME"]))
 
 BASE_DIR = Path(os.environ.get("AGENTIC_OS_HOME") or Path(__file__).parent).resolve()
 
@@ -78,10 +98,14 @@ def configured_port(default: int = 8080) -> int:
 # ─── Server thread (testable core) ────────────────────────────────
 
 def make_server(host: str = "127.0.0.1", port: int = 8080):
-    """Build a uvicorn Server bound to the FastAPI app (not yet started)."""
+    """Build a uvicorn Server bound to the FastAPI app (not yet started).
+
+    use_colors=False keeps uvicorn's formatter from probing sys.stdout.isatty(),
+    which crashes in a windowed exe where stdout can be None."""
     import uvicorn
     import server as server_module
-    config = uvicorn.Config(server_module.app, host=host, port=port, log_level="info")
+    config = uvicorn.Config(server_module.app, host=host, port=port,
+                            log_level="info", use_colors=False)
     return uvicorn.Server(config)
 
 
